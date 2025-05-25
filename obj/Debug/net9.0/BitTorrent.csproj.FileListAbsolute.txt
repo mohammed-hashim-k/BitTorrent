@@ -1,0 +1,14 @@
+D:\C#\BitTorrent\bin\Debug\net9.0\BitTorrent.exe
+D:\C#\BitTorrent\bin\Debug\net9.0\BitTorrent.deps.json
+D:\C#\BitTorrent\bin\Debug\net9.0\BitTorrent.runtimeconfig.json
+D:\C#\BitTorrent\bin\Debug\net9.0\BitTorrent.dll
+D:\C#\BitTorrent\bin\Debug\net9.0\BitTorrent.pdb
+D:\C#\BitTorrent\obj\Debug\net9.0\BitTorrent.GeneratedMSBuildEditorConfig.editorconfig
+D:\C#\BitTorrent\obj\Debug\net9.0\BitTorrent.AssemblyInfoInputs.cache
+D:\C#\BitTorrent\obj\Debug\net9.0\BitTorrent.AssemblyInfo.cs
+D:\C#\BitTorrent\obj\Debug\net9.0\BitTorrent.csproj.CoreCompileInputs.cache
+D:\C#\BitTorrent\obj\Debug\net9.0\BitTorrent.dll
+D:\C#\BitTorrent\obj\Debug\net9.0\refint\BitTorrent.dll
+D:\C#\BitTorrent\obj\Debug\net9.0\BitTorrent.pdb
+D:\C#\BitTorrent\obj\Debug\net9.0\BitTorrent.genruntimeconfig.cache
+D:\C#\BitTorrent\obj\Debug\net9.0\ref\BitTorrent.dll
