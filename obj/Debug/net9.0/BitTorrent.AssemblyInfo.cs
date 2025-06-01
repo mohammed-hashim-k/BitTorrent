@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BitTorrent")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7edf5e4fa799b46680f2a024c8a077f5c48c1b22")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+71d041e6fe5de5b14d88c92fc851844b6f5e1b4e")]
 [assembly: System.Reflection.AssemblyProductAttribute("BitTorrent")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BitTorrent")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
