@@ -16,8 +16,8 @@ namespace BitTorrent
 
         private static int maxLeechers = 5;
         private static int maxSeeders = 5;
-        private static int maxUploadBytesPerSecond = 16384;
-        private static int maxDownloadBytesPerSecond = 16384;
+        private static int maxUploadBytesPerSecond = 16384; // 16 KB/s
+        private static int maxDownloadBytesPerSecond = 16384; // 16 KB/s
 
         private readonly Random random = new Random();
         private readonly Throttle uploadThrottle = new Throttle(maxUploadBytesPerSecond, TimeSpan.FromSeconds(1));
