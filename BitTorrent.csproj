@@ -8,7 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="JonSkeet.MiscUtil" Version="0.2.0" />
+    <Compile Remove="BitTorrent.Tests\**\*.cs" />
+    <EmbeddedResource Remove="BitTorrent.Tests\**\*" />
+    <None Remove="BitTorrent.Tests\**\*" />
   </ItemGroup>
 
 </Project>

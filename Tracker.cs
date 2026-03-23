@@ -1,9 +1,8 @@
 using System;
-using System.Linq;
-using System.Net;
-using System.IO;
 using System.Collections.Generic;
-using System.Threading;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace BitTorrent
 {
@@ -13,37 +12,36 @@ namespace BitTorrent
         Paused,
         Stopped
     }
+
     public class Tracker
     {
-        private HttpWebRequest httpWebRequest;
-
+        private static readonly HttpClient HttpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
 
         public event EventHandler<List<IPEndPoint>>? PeerListUpdated;
-        public string Address { get; private set; }
+        public string Address { get; }
 
         public DateTime LastPeerRequest { get; private set; } = DateTime.MinValue;
         public TimeSpan PeerRequestInterval { get; private set; } = TimeSpan.FromMinutes(30);
+
         public Tracker(string address)
         {
             Address = address;
         }
 
-
-        public void Update(Torrent torrent, TrackerEvent ev, string id, int port)
+        public async Task UpdateAsync(Torrent torrent, TrackerEvent ev, string id, int port)
         {
-            // wait until after request interval has elapsed before asking for new peers
+            // The client ticks regularly, but trackers tell us how often we are allowed
+            // to ask for fresh peers, so honor their interval for started announces.
             if (ev == TrackerEvent.Started && DateTime.UtcNow < LastPeerRequest.Add(PeerRequestInterval))
                 return;
 
             LastPeerRequest = DateTime.UtcNow;
 
-            string url = String.Format("{0}?info_hash={1}&peer_id={2}&port={3}&uploaded={4}&downloaded={5}&left={6}&event={7}&compact=1",
-                             Address, torrent.UrlSafeStringInfohash,
-                             id, port,
-                             torrent.Uploaded, torrent.Downloaded, torrent.Left,
-                             Enum.GetName(typeof(TrackerEvent), ev).ToLower());
-
-            Request(url);
+            string url = BuildAnnounceUrl(torrent, ev, id, port);
+            await RequestAsync(url).ConfigureAwait(false);
         }
 
         public void ResetLastRequest()
@@ -51,56 +49,78 @@ namespace BitTorrent
             LastPeerRequest = DateTime.MinValue;
         }
 
-        private void Request(string url)
+        private string BuildAnnounceUrl(Torrent torrent, TrackerEvent ev, string id, int port)
         {
-            httpWebRequest = (HttpWebRequest)HttpWebRequest.Create(url);
-            httpWebRequest.BeginGetResponse(HandleResponse, null);
+            return string.Format(
+                "{0}?info_hash={1}&peer_id={2}&port={3}&uploaded={4}&downloaded={5}&left={6}&event={7}&compact=1",
+                Address,
+                torrent.UrlSafeStringInfohash,
+                Uri.EscapeDataString(id),
+                port,
+                torrent.Uploaded,
+                torrent.Downloaded,
+                torrent.Left,
+                ev.ToString().ToLowerInvariant());
         }
 
-        private void HandleResponse(IAsyncResult result)
+        private async Task RequestAsync(string url)
         {
-            byte[] data;
-
-            using (HttpWebResponse response = (HttpWebResponse)httpWebRequest.EndGetResponse(result))
+            try
             {
+                using var response = await HttpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
                 if (response.StatusCode != HttpStatusCode.OK)
                 {
-                    Console.WriteLine("error reaching tracker " + this + ": " + response.StatusCode + " " + response.StatusDescription);
+                    Log.Error(this, "error reaching tracker: " + response.StatusCode + " " + response.ReasonPhrase);
                     return;
                 }
 
-                using (Stream stream = response.GetResponseStream())
-                {
-                    data = new byte[response.ContentLength];
-                    stream.Read(data, 0, Convert.ToInt32(response.ContentLength));
-                }
+                byte[] data = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                HandleResponse(data);
             }
+            catch (Exception ex)
+            {
+                Log.Error(this, "error reaching tracker: " + ex.Message);
+            }
+        }
 
-            Dictionary<string, object> info = BEncoding.Decode(data) as Dictionary<string, object>;
-
+        private void HandleResponse(byte[] data)
+        {
+            var info = BEncoding.Decode(data) as Dictionary<string, object>;
             if (info == null)
             {
-                Console.WriteLine("unable to decode tracker announce response");
+                Log.Error(this, "unable to decode tracker announce response");
                 return;
             }
 
-            PeerRequestInterval = TimeSpan.FromSeconds((long)info["interval"]);
-            byte[] peerInfo = (byte[])info["peers"];
-
-            List<IPEndPoint> peers = new List<IPEndPoint>();
-            for (int i = 0; i < peerInfo.Length / 6; i++)
+            if (!info.TryGetValue("interval", out var intervalValue) || intervalValue is not long intervalSeconds)
             {
-                int offset = i * 6;
-                string address = peerInfo[offset] + "." + peerInfo[offset + 1] + "." + peerInfo[offset + 2] + "." + peerInfo[offset + 3];
-                int port = (peerInfo[offset + 4] << 8) | peerInfo[offset + 5];
+                Log.Error(this, "tracker announce response missing interval");
+                return;
+            }
 
+            if (!info.TryGetValue("peers", out var peerValue) || peerValue is not byte[] peerInfo)
+            {
+                Log.Error(this, "tracker announce response missing compact peer list");
+                return;
+            }
+
+            PeerRequestInterval = TimeSpan.FromSeconds(intervalSeconds);
+
+            // Compact peer lists encode each peer as 4 bytes of IPv4 address followed by 2 bytes of port.
+            List<IPEndPoint> peers = new List<IPEndPoint>(peerInfo.Length / 6);
+            for (int i = 0; i + 5 < peerInfo.Length; i += 6)
+            {
+                string address = $"{peerInfo[i]}.{peerInfo[i + 1]}.{peerInfo[i + 2]}.{peerInfo[i + 3]}";
+                int port = (peerInfo[i + 4] << 8) | peerInfo[i + 5];
                 peers.Add(new IPEndPoint(IPAddress.Parse(address), port));
             }
 
-            var handler = PeerListUpdated;
-            if (handler != null)
-                handler(this, peers);
+            PeerListUpdated?.Invoke(this, peers);
         }
 
+        public override string ToString()
+        {
+            return Address;
+        }
     }
 }

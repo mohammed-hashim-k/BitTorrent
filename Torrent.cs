@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Net;
+using System.Threading.Tasks;
 
 
 namespace BitTorrent
@@ -66,9 +67,9 @@ namespace BitTorrent
 
         #region Constructor
         public event EventHandler<List<IPEndPoint>>? PeerListUpdated;
-        private object[] fileWriteLocks;
-        private static SHA1 sha1 = SHA1.Create();
-        public Torrent(string name, string location, List<FileItem> files, List<string> trackers, int pieceSize, byte[] pieceHashes = null, int blockSize = 16384, bool? isPrivate = false)
+        private readonly object[] fileWriteLocks;
+        private static readonly SHA1 sha1 = SHA1.Create();
+        public Torrent(string name, string location, List<FileItem> files, List<string>? trackers, int pieceSize, byte[]? pieceHashes = null, int blockSize = 16384, bool? isPrivate = false)
         {
             Name = name;
             DownloadDirectory = location;
@@ -105,7 +106,7 @@ namespace BitTorrent
             {
                 // this is a new torrent so we have to create the hashes from the files                 
                 for (int i = 0; i < PieceCount; i++)
-                    PieceHashes[i] = GetHash(i);
+                    PieceHashes[i] = GetHash(i) ?? throw new InvalidOperationException("Unable to hash torrent data.");
             }
             else
             {
@@ -127,19 +128,28 @@ namespace BitTorrent
         #endregion
 
         #region Methods
-        public byte[] Read(long start, int length)
+        private string GetFilePath(FileItem file)
+        {
+            return Path.Combine(
+                new[] { DownloadDirectory, FileDirectory, file.Path }
+                    .Where(x => !string.IsNullOrEmpty(x))
+                    .ToArray());
+        }
+
+        public byte[]? Read(long start, int length)
         {
             long end = start + length;
             byte[] buffer = new byte[length];
 
             for (int i = 0; i < Files.Count; i++)
             {
-                // if the requested range does not overlap with the file, skip it                
+                // Torrent content is one logical byte stream that may span many files,
+                // so each file only contributes the overlapping slice for this read.
                 if ((start < Files[i].Offset && end < Files[i].Offset) ||
                     (start > Files[i].Offset + Files[i].Size && end > Files[i].Offset + Files[i].Size))
                     continue;
 
-                string filePath = DownloadDirectory + Path.DirectorySeparatorChar + FileDirectory + Files[i].Path;
+                string filePath = GetFilePath(Files[i]);
 
                 if (!File.Exists(filePath))
                     return null;
@@ -152,7 +162,16 @@ namespace BitTorrent
                 using (Stream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
                     stream.Seek(fstart, SeekOrigin.Begin);
-                    stream.Read(buffer, bstart, flength);
+
+                    int totalRead = 0;
+                    while (totalRead < flength)
+                    {
+                        int bytesRead = stream.Read(buffer, bstart + totalRead, flength - totalRead);
+                        if (bytesRead == 0)
+                            break;
+
+                        totalRead += bytesRead;
+                    }
                 }
             }
 
@@ -169,14 +188,16 @@ namespace BitTorrent
                     (start > Files[i].Offset + Files[i].Size && end > Files[i].Offset + Files[i].Size))
                     continue;
 
-                string filePath = DownloadDirectory + Path.DirectorySeparatorChar + FileDirectory + Files[i].Path;
+                string filePath = GetFilePath(Files[i]);
 
-                string dir = Path.GetDirectoryName(filePath);
-                if (!Directory.Exists(dir))
+                string? dir = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
                 lock (fileWriteLocks[i])
                 {
+                    // Lock per file instead of globally so multi-file torrents can still
+                    // accept concurrent writes when they target different files.
                     using (Stream stream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.ReadWrite))
                     {
                         long fstart = Math.Max(0, start - Files[i].Offset);
@@ -191,12 +212,12 @@ namespace BitTorrent
             }
         }
 
-        public byte[] ReadPiece(int piece)
+        public byte[]? ReadPiece(int piece)
         {
             return Read(piece * PieceSize, GetPieceSize(piece));
         }
 
-        public byte[] ReadBlock(int piece, int offset, int length)
+        public byte[]? ReadBlock(int piece, int offset, int length)
         {
             return Read(piece * PieceSize + offset, length);
         }
@@ -208,12 +229,13 @@ namespace BitTorrent
             Verify(piece);
         }
 
-        public event EventHandler<int> PieceVerified;
+        public event EventHandler<int>? PieceVerified;
 
         public void Verify(int piece)
         {
-            byte[] hash = GetHash(piece);
+            byte[]? hash = GetHash(piece);
 
+            // A piece only becomes complete once its SHA-1 matches the torrent metadata.
             bool isVerified = (hash != null && hash.SequenceEqual(PieceHashes[piece]));
 
             if (isVerified)
@@ -224,16 +246,14 @@ namespace BitTorrent
                     IsBlockAcquired[piece][j] = true;
 
                 // raise the event to notify the UI that a piece has been verified
-                var handler = PieceVerified;
-                if (handler != null)
-                    handler(this, piece);
+                PieceVerified?.Invoke(this, piece);
 
                 return;
             }
 
             IsPieceVerified[piece] = false;
 
-            // reload the entire piece
+            // If all blocks were received but the hash failed, force a full re-download.
             if (IsBlockAcquired[piece].All(x => x))
             {
                 for (int j = 0; j < IsBlockAcquired[piece].Length; j++)
@@ -241,9 +261,9 @@ namespace BitTorrent
             }
         }
 
-        public byte[] GetHash(int piece)
+        public byte[]? GetHash(int piece)
         {
-            byte[] data = ReadPiece(piece);
+            byte[]? data = ReadPiece(piece);
 
             if (data == null)
                 return null;
@@ -324,9 +344,7 @@ namespace BitTorrent
 
         public static string DecodeUTF8String(object obj)
         {
-            byte[] bytes = obj as byte[];
-
-            if (bytes == null)
+            if (obj is not byte[] bytes)
                 throw new Exception("unable to decode utf-8 string, object is not a byte array");
 
             return Encoding.UTF8.GetString(bytes);
@@ -429,14 +447,16 @@ namespace BitTorrent
             return torrent;
         }
 
-        public static Torrent Create(string path, List<string> trackers = null, int pieceSize = 32768, string comment = "")
+        public static Torrent Create(string path, List<string>? trackers = null, int pieceSize = 32768, string comment = "")
         {
             string name = "";
+            string downloadLocation = "";
             List<FileItem> files = new List<FileItem>();
 
             if (File.Exists(path))
             {
                 name = Path.GetFileName(path);
+                downloadLocation = Path.GetDirectoryName(Path.GetFullPath(path)) ?? "";
 
                 long size = new FileInfo(path).Length;
                 files.Add(new FileItem()
@@ -447,7 +467,9 @@ namespace BitTorrent
             }
             else
             {
-                name = path;
+                DirectoryInfo rootDirectory = new DirectoryInfo(path);
+                name = rootDirectory.Name;
+                downloadLocation = rootDirectory.Parent?.FullName ?? "";
                 string directory = path + Path.DirectorySeparatorChar;
 
                 long running = 0;
@@ -471,7 +493,7 @@ namespace BitTorrent
                 }
             }
 
-            Torrent torrent = new Torrent(name, "", files, trackers, pieceSize)
+            Torrent torrent = new Torrent(name, downloadLocation, files, trackers, pieceSize)
             {
                 Comment = comment,
                 CreatedBy = "TestClient",
@@ -481,16 +503,17 @@ namespace BitTorrent
 
             return torrent;
         }
-        public void UpdateTrackers(TrackerEvent ev, string id, int port)
+        public async Task UpdateTrackersAsync(TrackerEvent ev, string id, int port)
         {
+            // Trackers are updated sequentially so each announce sees the latest counters.
             foreach (var tracker in Trackers)
-                tracker.Update(this, ev, id, port);
+                await tracker.UpdateAsync(this, ev, id, port).ConfigureAwait(false);
         }
 
         public void ResetTrackersLastUpdated()
         { }
 
-        private void HandlePeerListUpdated(object sender, List<IPEndPoint> peers)
+        private void HandlePeerListUpdated(object? sender, List<IPEndPoint> peers)
         {
             PeerListUpdated?.Invoke(this, peers);
         }

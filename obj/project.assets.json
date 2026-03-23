@@ -1,41 +1,11 @@
 {
   "version": 3,
   "targets": {
-    "net9.0": {
-      "JonSkeet.MiscUtil/0.2.0": {
-        "type": "package",
-        "compile": {
-          "lib/net35/MiscUtil.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/net35/MiscUtil.dll": {
-            "related": ".xml"
-          }
-        }
-      }
-    }
+    "net9.0": {}
   },
-  "libraries": {
-    "JonSkeet.MiscUtil/0.2.0": {
-      "sha512": "eKBBJzfVay4k1sQel05N1NyzmglO3TEhQ1K9nSqXxiVcpAXFF4y5sNFJQTxhQ4ZoM5+O0x0EasitbGKDL63yNA==",
-      "type": "package",
-      "path": "jonskeet.miscutil/0.2.0",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "jonskeet.miscutil.0.2.0.nupkg.sha512",
-        "jonskeet.miscutil.nuspec",
-        "lib/net35/MiscUtil.dll",
-        "lib/net35/MiscUtil.xml"
-      ]
-    }
-  },
+  "libraries": {},
   "projectFileDependencyGroups": {
-    "net9.0": [
-      "JonSkeet.MiscUtil >= 0.2.0"
-    ]
+    "net9.0": []
   },
   "packageFolders": {
     "C:\\Users\\LENOVO\\.nuget\\packages\\": {},
@@ -86,12 +56,6 @@
     "frameworks": {
       "net9.0": {
         "targetAlias": "net9.0",
-        "dependencies": {
-          "JonSkeet.MiscUtil": {
-            "target": "Package",
-            "version": "[0.2.0, )"
-          }
-        },
         "imports": [
           "net461",
           "net462",
@@ -111,17 +75,5 @@
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.104/PortableRuntimeIdentifierGraph.json"
       }
     }
-  },
-  "logs": [
-    {
-      "code": "NU1701",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'JonSkeet.MiscUtil 0.2.0' was restored using '.NETFramework,Version=v4.6.1, .NETFramework,Version=v4.6.2, .NETFramework,Version=v4.7, .NETFramework,Version=v4.7.1, .NETFramework,Version=v4.7.2, .NETFramework,Version=v4.8, .NETFramework,Version=v4.8.1' instead of the project target framework 'net9.0'. This package may not be fully compatible with your project.",
-      "libraryId": "JonSkeet.MiscUtil",
-      "targetGraphs": [
-        "net9.0"
-      ]
-    }
-  ]
+  }
 }

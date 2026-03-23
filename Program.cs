@@ -3,28 +3,25 @@ using System.IO;
 using BitTorrent;
 namespace Program
 {
-    public class Program
+    public static class Program
     {
-        public static Client Client;
-
         public static void Main(string[] args)
         {
-            int port = -1;
-
-            if (args.Length != 3 || !Int32.TryParse(args[0], out port) || !File.Exists(args[1]))
+            if (args.Length != 3 || !Int32.TryParse(args[0], out var port) || !File.Exists(args[1]))
             {
-                Console.WriteLine("Error: requires port, torrent file and download directory as first, second and third arguments");
+                Log.Error("requires port, torrent file and download directory as first, second and third arguments");
                 return;
             }
 
-            Client = new Client(port, args[1], args[2]);
-            Client.Start();
+            var client = new Client(port, args[1], args[2]);
 
-            Console.CancelKeyPress += (sender, e) =>
+            Console.CancelKeyPress += (_, e) =>
             {
                 e.Cancel = true;
-                Client.Stop();
+                client.Stop();
             };
+
+            client.Start();
             Console.ReadLine();
         }
     }

@@ -137,6 +137,12 @@ namespace BitTorrent
                 // read key
                 byte[] keyBytes = DecodeByteArray(enumerator);
                 string key = System.Text.Encoding.UTF8.GetString(keyBytes);
+
+                if (!enumerator.MoveNext())
+                {
+                    throw new Exception("Dictionary ended before value could be read");
+                }
+
                 // read value
                 object value = DecodeNextObject(enumerator);
                 keys.Add(key);

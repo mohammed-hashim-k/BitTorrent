@@ -2,30 +2,30 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using System.Linq;
 using System.Text;
 using System.IO;
-using MiscUtil.Conversion;
 
 namespace BitTorrent
 {
     public class DataRequest
     {
-        public Peer Peer;
-        public int Piece;
-        public int Begin;
-        public int Length;
-        public bool IsCancelled;
+        public Peer Peer { get; init; } = null!;
+        public int Piece { get; init; }
+        public int Begin { get; init; }
+        public int Length { get; init; }
+        public bool IsCancelled { get; set; }
     }
 
     public class DataPackage
     {
-        public Peer Peer;
-        public int Piece;
-        public int Block;
-        public byte[] Data;
+        public Peer Peer { get; init; } = null!;
+        public int Piece { get; init; }
+        public int Block { get; init; }
+        public byte[] Data { get; init; } = Array.Empty<byte>();
     }
     public enum MessageType : int
     {
@@ -45,36 +45,36 @@ namespace BitTorrent
     }
     public class Peer
     {
-        public event EventHandler Disconnected;
-        public event EventHandler StateChanged;
-        public event EventHandler<DataRequest> BlockRequested;
-        public event EventHandler<DataRequest> BlockCancelled;
-        public event EventHandler<DataPackage> BlockReceived;
+        public event EventHandler? Disconnected;
+        public event EventHandler? StateChanged;
+        public event EventHandler<DataRequest>? BlockRequested;
+        public event EventHandler<DataRequest>? BlockCancelled;
+        public event EventHandler<DataPackage>? BlockReceived;
 
         public string LocalId { get; set; }
-        public string Id { get; set; }
+        public string Id { get; set; } = string.Empty;
 
         public Torrent Torrent { get; private set; }
 
-        public IPEndPoint IPEndPoint { get; private set; }
+        public IPEndPoint IPEndPoint { get; private set; } = null!;
         public string Key { get { return IPEndPoint.ToString(); } }
 
-        private TcpClient TcpClient { get; set; }
-        private NetworkStream stream { get; set; }
+        private TcpClient? TcpClient { get; set; }
+        private NetworkStream? stream { get; set; }
         private const int bufferSize = 256;
-        private byte[] streamBuffer = new byte[bufferSize];
-        private List<byte> data = new List<byte>();
+        private readonly byte[] streamBuffer = new byte[bufferSize];
+        private readonly List<byte> data = new List<byte>();
 
-        public bool[] IsPieceDownloaded = new bool[0];
+        public bool[] IsPieceDownloaded = Array.Empty<bool>();
         public string PiecesDownloaded { get { return String.Join("", IsPieceDownloaded.Select(x => Convert.ToInt32(x))); } }
         public int PiecesRequiredAvailable { get { return IsPieceDownloaded.Select((x, i) => x && !Torrent.IsPieceVerified[i]).Count(x => x); } }
         public int PiecesDownloadedCount { get { return IsPieceDownloaded.Count(x => x); } }
         public bool IsCompleted { get { return PiecesDownloadedCount == Torrent.PieceCount; } }
+        public override string ToString() { return Key; }
 
         public bool IsDisconnected;
 
         public bool IsHandshakeSent;
-        public bool IsPositionSent;
         public bool IsChokeSent = true;
         public bool IsInterestedSent = false;
 
@@ -82,7 +82,7 @@ namespace BitTorrent
         public bool IsChokeReceived = true;
         public bool IsInterestedReceived = false;
 
-        public bool[][] IsBlockRequested = new bool[0][];
+        public bool[][] IsBlockRequested = Array.Empty<bool[]>();
         public int BlocksRequested { get { return IsBlockRequested.Sum(x => x.Count(y => y)); } }
 
         public DateTime LastActive;
@@ -96,7 +96,8 @@ namespace BitTorrent
         public Peer(Torrent torrent, string localId, TcpClient client) : this(torrent, localId)
         {
             TcpClient = client;
-            IPEndPoint = (IPEndPoint)client.Client.RemoteEndPoint;
+            IPEndPoint = client.Client.RemoteEndPoint as IPEndPoint
+                ?? throw new InvalidOperationException("Peer connection must have a remote endpoint.");
         }
 
         public Peer(Torrent torrent, string localId, IPEndPoint endPoint) : this(torrent, localId)
@@ -118,6 +119,18 @@ namespace BitTorrent
         #endregion
 
         #region Methods
+        private static int ReadInt32BigEndian(byte[] bytes, int offset = 0)
+        {
+            return BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(offset, sizeof(int)));
+        }
+
+        private static byte[] WriteInt32BigEndian(int value)
+        {
+            byte[] bytes = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32BigEndian(bytes, value);
+            return bytes;
+        }
+
         public void Connect()
         {
             if (TcpClient == null)
@@ -127,44 +140,42 @@ namespace BitTorrent
                 {
                     TcpClient.Connect(IPEndPoint);
                 }
-                catch (Exception e)
+                catch (SocketException)
                 {
                     Disconnect();
                     return;
                 }
             }
-            Console.WriteLine("connected to " + IPEndPoint);
+            Log.Info(this, "connected");
 
             stream = TcpClient.GetStream();
-            stream.BeginRead(streamBuffer, 0, Peer.bufferSize, new AsyncCallback(HandleRead), null);
-
             SendHandshake();
-            if (IsHandshakeReceived)
-                SendBitfield(Torrent.IsPieceVerified);
+            stream.BeginRead(streamBuffer, 0, Peer.bufferSize, new AsyncCallback(HandleRead), null);
         }
 
         public void Disconnect()
         {
-            if (!IsDisconnected)
-            {
-                IsDisconnected = true;
-                Console.WriteLine("disconnected, down " + Downloaded + ", up " + Uploaded);
-            }
+            if (IsDisconnected)
+                return;
 
-            if (TcpClient != null)
-                TcpClient.Close();
+            IsDisconnected = true;
+            Log.Info(this, "disconnected, down " + Downloaded + ", up " + Uploaded);
 
-            if (Disconnected != null)
-                Disconnected(this, new EventArgs());
+            stream?.Dispose();
+            TcpClient?.Close();
+            Disconnected?.Invoke(this, EventArgs.Empty);
         }
 
         private void SendBytes(byte[] bytes)
         {
+            if (IsDisconnected || stream == null)
+                return;
+
             try
             {
                 stream.Write(bytes, 0, bytes.Length);
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 Disconnect();
             }
@@ -172,12 +183,21 @@ namespace BitTorrent
 
         private void HandleRead(IAsyncResult ar)
         {
+            if (stream == null)
+                return;
+
             int bytes = 0;
             try
             {
                 bytes = stream.EndRead(ar);
             }
-            catch (Exception e)
+            catch (Exception)
+            {
+                Disconnect();
+                return;
+            }
+
+            if (bytes == 0)
             {
                 Disconnect();
                 return;
@@ -185,11 +205,13 @@ namespace BitTorrent
 
             data.AddRange(streamBuffer.Take(bytes));
 
+            // One socket read may contain partial data or multiple protocol messages,
+            // so unread bytes stay buffered until a full message is available.
             int messageLength = GetMessageLength(data);
             while (data.Count >= messageLength)
             {
                 HandleMessage(data.Take(messageLength).ToArray());
-                data = data.Skip(messageLength).ToList();
+                data.RemoveRange(0, messageLength);
 
                 messageLength = GetMessageLength(data);
             }
@@ -198,7 +220,7 @@ namespace BitTorrent
             {
                 stream.BeginRead(streamBuffer, 0, Peer.bufferSize, new AsyncCallback(HandleRead), null);
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 Disconnect();
             }
@@ -206,13 +228,14 @@ namespace BitTorrent
 
         private int GetMessageLength(List<byte> data)
         {
+            // The handshake is the only fixed-size message; everything after that is length-prefixed.
             if (!IsHandshakeReceived)
                 return 68;
 
             if (data.Count < 4)
                 return int.MaxValue;
 
-            return EndianBitConverter.Big.ToInt32(data.ToArray(), 0) + 4;
+            return ReadInt32BigEndian(data.Take(4).ToArray()) + 4;
         }
 
         public static bool DecodeHandshake(byte[] bytes, out byte[] hash, out string id)
@@ -222,13 +245,13 @@ namespace BitTorrent
 
             if (bytes.Length != 68 || bytes[0] != 19)
             {
-                Console.WriteLine("invalid handshake, must be of length 68 and first byte must equal 19");
+                Log.Error("invalid handshake, must be of length 68 and first byte must equal 19");
                 return false;
             }
 
             if (Encoding.UTF8.GetString(bytes.Skip(1).Take(19).ToArray()) != "BitTorrent protocol")
             {
-                Console.WriteLine("invalid handshake, protocol must equal \"BitTorrent protocol\"");
+                Log.Error("invalid handshake, protocol must equal \"BitTorrent protocol\"");
                 return false;
             }
 
@@ -254,9 +277,9 @@ namespace BitTorrent
         }
         public static bool DecodeKeepAlive(byte[] bytes)
         {
-            if (bytes.Length != 4 || EndianBitConverter.Big.ToInt32(bytes, 0) != 0)
+            if (bytes.Length != 4 || ReadInt32BigEndian(bytes) != 0)
             {
-                Console.WriteLine("invalid keep alive");
+                Log.Error("invalid keep alive");
                 return false;
             }
             return true;
@@ -264,7 +287,7 @@ namespace BitTorrent
 
         public static byte[] EncodeKeepAlive()
         {
-            return EndianBitConverter.Big.GetBytes(0);
+            return WriteInt32BigEndian(0);
         }
         public static bool DecodeChoke(byte[] bytes)
         {
@@ -288,9 +311,9 @@ namespace BitTorrent
 
         public static bool DecodeState(byte[] bytes, MessageType type)
         {
-            if (bytes.Length != 5 || EndianBitConverter.Big.ToInt32(bytes, 0) != 1 || bytes[4] != (byte)type)
+            if (bytes.Length != 5 || ReadInt32BigEndian(bytes) != 1 || bytes[4] != (byte)type)
             {
-                //Log.WriteLine("invalid " + Enum.GetName(typeof(MessageType), type));
+                Log.Debug("invalid " + Enum.GetName(typeof(MessageType), type));
                 return false;
             }
             return true;
@@ -319,7 +342,7 @@ namespace BitTorrent
         public static byte[] EncodeState(MessageType type)
         {
             byte[] message = new byte[5];
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(1), 0, message, 0, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(1), 0, message, 0, 4);
             message[4] = (byte)type;
             return message;
         }
@@ -329,13 +352,13 @@ namespace BitTorrent
         {
             index = -1;
 
-            if (bytes.Length != 9 || EndianBitConverter.Big.ToInt32(bytes, 0) != 5)
+            if (bytes.Length != 9 || ReadInt32BigEndian(bytes) != 5)
             {
-                Console.WriteLine("invalid have, first byte must equal 0x2");
+                Log.Error("invalid have, first byte must equal 0x2");
                 return false;
             }
 
-            index = EndianBitConverter.Big.ToInt32(bytes, 5);
+            index = ReadInt32BigEndian(bytes, 5);
 
             return true;
         }
@@ -346,12 +369,13 @@ namespace BitTorrent
 
             int expectedLength = Convert.ToInt32(Math.Ceiling(pieces / 8.0)) + 1;
 
-            if (bytes.Length != expectedLength + 4 || EndianBitConverter.Big.ToInt32(bytes, 0) != expectedLength)
+            if (bytes.Length != expectedLength + 4 || ReadInt32BigEndian(bytes) != expectedLength)
             {
-                Console.WriteLine("invalid bitfield, first byte must equal " + expectedLength);
+                Log.Error("invalid bitfield, first byte must equal " + expectedLength);
                 return false;
             }
 
+            // BitTorrent encodes piece availability with the most significant bit first.
             BitArray bitfield = new BitArray(bytes.Skip(5).ToArray());
 
             for (int i = 0; i < pieces; i++)
@@ -363,9 +387,9 @@ namespace BitTorrent
         public static byte[] EncodeHave(int index)
         {
             byte[] message = new byte[9];
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(5), 0, message, 0, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(5), 0, message, 0, 4);
             message[4] = (byte)MessageType.Have;
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(index), 0, message, 5, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(index), 0, message, 5, 4);
 
             return message;
         }
@@ -379,7 +403,7 @@ namespace BitTorrent
             int length = numBytes + 1;
 
             byte[] message = new byte[length + 4];
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(length), 0, message, 0, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(length), 0, message, 0, 4);
             message[4] = (byte)MessageType.Bitfield;
 
             bool[] downloaded = new bool[numBits];
@@ -402,15 +426,15 @@ namespace BitTorrent
             begin = -1;
             length = -1;
 
-            if (bytes.Length != 17 || EndianBitConverter.Big.ToInt32(bytes, 0) != 13)
+            if (bytes.Length != 17 || ReadInt32BigEndian(bytes) != 13)
             {
-                Console.WriteLine("invalid request message, must be of length 17");
+                Log.Error("invalid request message, must be of length 17");
                 return false;
             }
 
-            index = EndianBitConverter.Big.ToInt32(bytes, 5);
-            begin = EndianBitConverter.Big.ToInt32(bytes, 9);
-            length = EndianBitConverter.Big.ToInt32(bytes, 13);
+            index = ReadInt32BigEndian(bytes, 5);
+            begin = ReadInt32BigEndian(bytes, 9);
+            length = ReadInt32BigEndian(bytes, 13);
 
             return true;
         }
@@ -423,13 +447,13 @@ namespace BitTorrent
 
             if (bytes.Length < 13)
             {
-                Console.WriteLine("invalid piece message");
+                Log.Error("invalid piece message");
                 return false;
             }
 
-            int length = EndianBitConverter.Big.ToInt32(bytes, 0) - 9;
-            index = EndianBitConverter.Big.ToInt32(bytes, 5);
-            begin = EndianBitConverter.Big.ToInt32(bytes, 9);
+            int length = ReadInt32BigEndian(bytes) - 9;
+            index = ReadInt32BigEndian(bytes, 5);
+            begin = ReadInt32BigEndian(bytes, 9);
 
             data = new byte[length];
             Buffer.BlockCopy(bytes, 13, data, 0, length);
@@ -443,15 +467,15 @@ namespace BitTorrent
             begin = -1;
             length = -1;
 
-            if (bytes.Length != 17 || EndianBitConverter.Big.ToInt32(bytes, 0) != 13)
+            if (bytes.Length != 17 || ReadInt32BigEndian(bytes) != 13)
             {
-                Console.WriteLine("invalid cancel message, must be of length 17");
+                Log.Error("invalid cancel message, must be of length 17");
                 return false;
             }
 
-            index = EndianBitConverter.Big.ToInt32(bytes, 5);
-            begin = EndianBitConverter.Big.ToInt32(bytes, 9);
-            length = EndianBitConverter.Big.ToInt32(bytes, 13);
+            index = ReadInt32BigEndian(bytes, 5);
+            begin = ReadInt32BigEndian(bytes, 9);
+            length = ReadInt32BigEndian(bytes, 13);
 
             return true;
         }
@@ -459,11 +483,11 @@ namespace BitTorrent
         public static byte[] EncodeRequest(int index, int begin, int length)
         {
             byte[] message = new byte[17];
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(13), 0, message, 0, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(13), 0, message, 0, 4);
             message[4] = (byte)MessageType.Request;
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(index), 0, message, 5, 4);
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(begin), 0, message, 9, 4);
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(length), 0, message, 13, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(index), 0, message, 5, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(begin), 0, message, 9, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(length), 0, message, 13, 4);
 
             return message;
         }
@@ -473,10 +497,10 @@ namespace BitTorrent
             int length = data.Length + 9;
 
             byte[] message = new byte[length + 4];
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(length), 0, message, 0, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(length), 0, message, 0, 4);
             message[4] = (byte)MessageType.Piece;
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(index), 0, message, 5, 4);
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(begin), 0, message, 9, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(index), 0, message, 5, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(begin), 0, message, 9, 4);
             Buffer.BlockCopy(data, 0, message, 13, data.Length);
 
             return message;
@@ -485,11 +509,11 @@ namespace BitTorrent
         public static byte[] EncodeCancel(int index, int begin, int length)
         {
             byte[] message = new byte[17];
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(13), 0, message, 0, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(13), 0, message, 0, 4);
             message[4] = (byte)MessageType.Cancel;
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(index), 0, message, 5, 4);
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(begin), 0, message, 9, 4);
-            Buffer.BlockCopy(EndianBitConverter.Big.GetBytes(length), 0, message, 13, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(index), 0, message, 5, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(begin), 0, message, 9, 4);
+            Buffer.BlockCopy(WriteInt32BigEndian(length), 0, message, 13, 4);
 
             return message;
         }
@@ -498,7 +522,7 @@ namespace BitTorrent
             if (IsHandshakeSent)
                 return;
 
-            //Log.WriteLine(this, "-> handshake");
+            Log.Debug(this, "-> handshake");
             SendBytes(EncodeHandshake(Torrent.Infohash, LocalId));
             IsHandshakeSent = true;
         }
@@ -508,7 +532,7 @@ namespace BitTorrent
             if (LastKeepAlive > DateTime.UtcNow.AddSeconds(-30))
                 return;
 
-            //Log.WriteLine(this, "-> keep alive");
+            Log.Debug(this, "-> keep alive");
             SendBytes(EncodeKeepAlive());
             LastKeepAlive = DateTime.UtcNow;
         }
@@ -518,7 +542,7 @@ namespace BitTorrent
             if (IsChokeSent)
                 return;
 
-            //Log.WriteLine(this, "-> choke");
+            Log.Debug(this, "-> choke");
             SendBytes(EncodeChoke());
             IsChokeSent = true;
         }
@@ -528,7 +552,7 @@ namespace BitTorrent
             if (!IsChokeSent)
                 return;
 
-            //Log.WriteLine(this, "-> unchoke");
+            Log.Debug(this, "-> unchoke");
             SendBytes(EncodeUnchoke());
             IsChokeSent = false;
         }
@@ -538,7 +562,7 @@ namespace BitTorrent
             if (IsInterestedSent)
                 return;
 
-            //Log.WriteLine(this, "-> interested");
+            Log.Debug(this, "-> interested");
             SendBytes(EncodeInterested());
             IsInterestedSent = true;
         }
@@ -548,39 +572,39 @@ namespace BitTorrent
             if (!IsInterestedSent)
                 return;
 
-            //Log.WriteLine(this, "-> not interested");
+            Log.Debug(this, "-> not interested");
             SendBytes(EncodeNotInterested());
             IsInterestedSent = false;
         }
 
         public void SendHave(int index)
         {
-            //Log.WriteLine(this, "-> have " + index);
+            Log.Debug(this, "-> have " + index);
             SendBytes(EncodeHave(index));
         }
 
         public void SendBitfield(bool[] isPieceDownloaded)
         {
-            //Log.WriteLine(this, "-> bitfield " + String.Join("", isPieceDownloaded.Select(x => x ? 1 : 0)));
+            Log.Debug(this, "-> bitfield " + String.Join("", isPieceDownloaded.Select(x => x ? 1 : 0)));
             SendBytes(EncodeBitfield(isPieceDownloaded));
         }
 
         public void SendRequest(int index, int begin, int length)
         {
-            //Log.WriteLine(this, "-> request " + index + ", " + begin + ", " + length);
+            Log.Debug(this, "-> request " + index + ", " + begin + ", " + length);
             SendBytes(EncodeRequest(index, begin, length));
         }
 
         public void SendPiece(int index, int begin, byte[] data)
         {
-            //Log.WriteLine(this, "-> piece " + index + ", " + begin + ", " + data.Length);
+            Log.Debug(this, "-> piece " + index + ", " + begin + ", " + data.Length);
             SendBytes(EncodePiece(index, begin, data));
             Uploaded += data.Length;
         }
 
         public void SendCancel(int index, int begin, int length)
         {
-            //Log.WriteLine(this, "-> cancel");
+            Log.Debug(this, "-> cancel");
             SendBytes(EncodeCancel(index, begin, length));
         }
         private MessageType GetMessageType(byte[] bytes)
@@ -588,7 +612,7 @@ namespace BitTorrent
             if (!IsHandshakeReceived)
                 return MessageType.Handshake;
 
-            if (bytes.Length == 4 && EndianBitConverter.Big.ToInt32(bytes, 0) == 0)
+            if (bytes.Length == 4 && ReadInt32BigEndian(bytes) == 0)
                 return MessageType.KeepAlive;
 
             if (bytes.Length > 4 && Enum.IsDefined(typeof(MessageType), (int)bytes[4]))
@@ -696,20 +720,21 @@ namespace BitTorrent
             }
             else if (type == MessageType.Port)
             {
-                //Log.WriteLine(this, " <- port: " + String.Join("", bytes.Select(x => x.ToString("x2"))));
+                Log.Debug(this, "<- port: " + String.Join("", bytes.Select(x => x.ToString("x2"))));
                 return;
             }
 
-            //Log.WriteLine(this, " Unhandled incoming message " + String.Join("", bytes.Select(x => x.ToString("x2"))));
+            Log.Debug(this, "Unhandled incoming message " + String.Join("", bytes.Select(x => x.ToString("x2"))));
             Disconnect();
         }
         private void HandleHandshake(byte[] hash, string id)
         {
-            //Log.WriteLine(this, "<- handshake");
+            Log.Debug(this, "<- handshake");
 
+            // Drop peers from a different swarm before advertising our state.
             if (!Torrent.Infohash.SequenceEqual(hash))
             {
-                //Log.WriteLine(this, "invalid handshake, incorrect torrent hash: expecting=" + Torrent.HexStringInfohash + ", received =" + String.Join("", hash.Select(x => x.ToString("x2"))));
+                Log.Debug(this, "invalid handshake, incorrect torrent hash: expecting=" + Torrent.HexStringInfohash + ", received =" + String.Join("", hash.Select(x => x.ToString("x2"))));
                 Disconnect();
                 return;
             }
@@ -722,61 +747,46 @@ namespace BitTorrent
 
         private void HandleKeepAlive()
         {
-            //Log.WriteLine(this, "<- keep alive");
+            Log.Debug(this, "<- keep alive");
         }
 
         private void HandlePort(int port)
         {
-            //Log.WriteLine(this, "<- port");
+            Log.Debug(this, "<- port");
         }
         private void HandleChoke()
         {
-            //Log.WriteLine(this, "<- choke");
+            Log.Debug(this, "<- choke");
             IsChokeReceived = true;
-
-            var handler = StateChanged;
-            if (handler != null)
-                handler(this, new EventArgs());
+            StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void HandleUnchoke()
         {
-            //Log.WriteLine(this, "<- unchoke");
+            Log.Debug(this, "<- unchoke");
             IsChokeReceived = false;
-
-            var handler = StateChanged;
-            if (handler != null)
-                handler(this, new EventArgs());
+            StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void HandleInterested()
         {
-           //Log.WriteLine(this, "<- interested");
+            Log.Debug(this, "<- interested");
             IsInterestedReceived = true;
-
-            var handler = StateChanged;
-            if (handler != null)
-                handler(this, new EventArgs());
+            StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void HandleNotInterested()
         {
-            //Log.WriteLine(this, "<- not interested");
+            Log.Debug(this, "<- not interested");
             IsInterestedReceived = false;
-
-            var handler = StateChanged;
-            if (handler != null)
-                handler(this, new EventArgs());
+            StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void HandleHave(int index)
         {
             IsPieceDownloaded[index] = true;
-            //Log.WriteLine(this, "<- have " + index + " - " + PiecesDownloadedCount + " available (" + PiecesDownloaded + ")");
-
-            var handler = StateChanged;
-            if (handler != null)
-                handler(this, new EventArgs());
+            Log.Debug(this, "<- have " + index + " - " + PiecesDownloadedCount + " available (" + PiecesDownloaded + ")");
+            StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void HandleBitfield(bool[] isPieceDownloaded)
@@ -784,63 +794,49 @@ namespace BitTorrent
             for (int i = 0; i < Torrent.PieceCount; i++)
                 IsPieceDownloaded[i] = IsPieceDownloaded[i] || isPieceDownloaded[i];
 
-            //Log.WriteLine(this, "<- bitfield " + PiecesDownloadedCount + " available (" + PiecesDownloaded + ")");
-
-            var handler = StateChanged;
-            if (handler != null)
-                handler(this, new EventArgs());
+            Log.Debug(this, "<- bitfield " + PiecesDownloadedCount + " available (" + PiecesDownloaded + ")");
+            StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void HandleRequest(int index, int begin, int length)
         {
-            //Log.WriteLine(this, "<- request " + index + ", " + begin + ", " + length);
+            Log.Debug(this, "<- request " + index + ", " + begin + ", " + length);
 
-            var handler = BlockRequested;
-            if (handler != null)
+            BlockRequested?.Invoke(this, new DataRequest()
             {
-                handler(this, new DataRequest()
-                {
-                    Peer = this,
-                    Piece = index,
-                    Begin = begin,
-                    Length = length
-                });
-            }
+                Peer = this,
+                Piece = index,
+                Begin = begin,
+                Length = length
+            });
         }
 
         private void HandlePiece(int index, int begin, byte[] data)
         {
-            //Log.WriteLine(this, "<- piece " + index + ", " + begin + ", " + data.Length);
+            Log.Debug(this, "<- piece " + index + ", " + begin + ", " + data.Length);
             Downloaded += data.Length;
 
-            var handler = BlockReceived;
-            if (handler != null)
+            // The wire format uses a byte offset; internally we track the block index.
+            BlockReceived?.Invoke(this, new DataPackage()
             {
-                handler(this, new DataPackage()
-                {
-                    Peer = this,
-                    Piece = index,
-                    Block = begin / Torrent.BlockSize,
-                    Data = data
-                });
-            }
+                Peer = this,
+                Piece = index,
+                Block = begin / Torrent.BlockSize,
+                Data = data
+            });
         }
 
         private void HandleCancel(int index, int begin, int length)
         {
-            //Log.WriteLine(this, " <- cancel");
+            Log.Debug(this, "<- cancel");
 
-            var handler = BlockCancelled;
-            if (handler != null)
+            BlockCancelled?.Invoke(this, new DataRequest()
             {
-                handler(this, new DataRequest()
-                {
-                    Peer = this,
-                    Piece = index,
-                    Begin = begin,
-                    Length = length
-                });
-            }
+                Peer = this,
+                Piece = index,
+                Begin = begin,
+                Length = length
+            });
         }
 
 

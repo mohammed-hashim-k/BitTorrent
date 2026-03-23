@@ -27,6 +27,3 @@ C:\Users\LENOVO\source\repos\BitTorrent\bin\Debug\net9.0\BitTorrent.dll
 C:\Users\LENOVO\source\repos\BitTorrent\bin\Debug\net9.0\BitTorrent.pdb
 C:\Users\LENOVO\source\repos\BitTorrent\obj\Debug\net9.0\BitTorrent.genruntimeconfig.cache
 C:\Users\LENOVO\source\repos\BitTorrent\obj\Debug\net9.0\ref\BitTorrent.dll
-C:\Users\LENOVO\source\repos\BitTorrent\bin\Debug\net9.0\MiscUtil.dll
-C:\Users\LENOVO\source\repos\BitTorrent\obj\Debug\net9.0\BitTorrent.csproj.AssemblyReference.cache
-C:\Users\LENOVO\source\repos\BitTorrent\obj\Debug\net9.0\BitTorrent.csproj.Up2Date
