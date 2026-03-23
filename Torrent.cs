@@ -54,8 +54,8 @@ namespace BitTorrent
         public bool IsStarted { get { return VerifiedPiecesCount > 0; } }
 
         public long Uploaded { get; set; } = 0;
-        public long Donwnloaded { get { return PieceSize * VerifiedPiecesCount; } }
-        public long Left { get { return TotalSize - Donwnloaded; } }
+        public long Downloaded { get { return PieceSize * VerifiedPiecesCount; } }
+        public long Left { get { return TotalSize - Downloaded; } }
 
 
 
@@ -481,7 +481,19 @@ namespace BitTorrent
 
             return torrent;
         }
+        public void UpdateTrackers(TrackerEvent ev, string id, int port)
+        {
+            foreach (var tracker in Trackers)
+                tracker.Update(this, ev, id, port);
+        }
 
+        public void ResetTrackersLastUpdated()
+        { }
+
+        private void HandlePeerListUpdated(object sender, List<IPEndPoint> peers)
+        {
+            PeerListUpdated?.Invoke(this, peers);
+        }
 
         #endregion
 
