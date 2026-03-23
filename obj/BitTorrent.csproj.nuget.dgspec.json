@@ -1,25 +1,31 @@
 {
   "format": 1,
   "restore": {
-    "D:\\C#\\BitTorrent\\BitTorrent.csproj": {}
+    "C:\\Users\\LENOVO\\source\\repos\\BitTorrent\\BitTorrent.csproj": {}
   },
   "projects": {
-    "D:\\C#\\BitTorrent\\BitTorrent.csproj": {
+    "C:\\Users\\LENOVO\\source\\repos\\BitTorrent\\BitTorrent.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\C#\\BitTorrent\\BitTorrent.csproj",
+        "projectUniqueName": "C:\\Users\\LENOVO\\source\\repos\\BitTorrent\\BitTorrent.csproj",
         "projectName": "BitTorrent",
-        "projectPath": "D:\\C#\\BitTorrent\\BitTorrent.csproj",
-        "packagesPath": "C:\\Users\\hashim\\.nuget\\packages\\",
-        "outputPath": "D:\\C#\\BitTorrent\\obj\\",
+        "projectPath": "C:\\Users\\LENOVO\\source\\repos\\BitTorrent\\BitTorrent.csproj",
+        "packagesPath": "C:\\Users\\LENOVO\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\LENOVO\\source\\repos\\BitTorrent\\obj\\",
         "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
         "configFilePaths": [
-          "C:\\Users\\hashim\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\LENOVO\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -38,7 +44,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.200"
+        "SdkAnalysisLevel": "10.0.100"
       },
       "frameworks": {
         "net9.0": {
@@ -59,7 +65,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.203/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.104/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

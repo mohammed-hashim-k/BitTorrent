@@ -18,7 +18,7 @@ namespace BitTorrent
         private static byte NumberEnd = System.Text.Encoding.UTF8.GetBytes("e")[0]; // 101
         private static byte ByteArrayDivider = System.Text.Encoding.UTF8.GetBytes(":")[0]; // 58
 
-        # region Decoding
+        #region Decoding
         public static object Decode(byte[] bytes)
         {
             IEnumerator<byte> enumerator = ((IEnumerable<byte>)bytes).GetEnumerator();
@@ -33,7 +33,7 @@ namespace BitTorrent
                 throw new FileNotFoundException("unable to find file : " + path);
             }
             byte[] bytes = File.ReadAllBytes(path);
-            return BEncoding.Decode(bytes);
+            return Decode(bytes);
         }
 
         public static object DecodeNextObject(IEnumerator<byte> enumerator)
@@ -42,7 +42,7 @@ namespace BitTorrent
             {
                 return DecodeDictionary(enumerator);
             }
-            if (enumerator.Currrent == ListStart)
+            if (enumerator.Current == ListStart)
             {
                 return DecodeList(enumerator);
             }
@@ -106,7 +106,7 @@ namespace BitTorrent
             return bytes;
         }
 
-        private static DecodeList(IEnumerator<byte> enumerator)
+        private static List<object> DecodeList(IEnumerator<byte> enumerator)
         {
             List<object> list = new List<object>();
             // keep pulling objects until we hit the end flag
@@ -122,7 +122,7 @@ namespace BitTorrent
         }
 
         // Decode dictionary
-        private static DecodeDictionary(IEnumerator<byte> enumerator)
+        private static Dictionary<string, object> DecodeDictionary(IEnumerator<byte> enumerator)
         {
             Dictionary<string, object> dict = new Dictionary<string, object>();
             List<string> keys = new List<string>();
