@@ -235,7 +235,7 @@ namespace BitTorrent
             if (data.Count < 4)
                 return int.MaxValue;
 
-            return ReadInt32BigEndian(data.Take(4).ToArray()) + 4;
+            return ReadInt32BigEndian(data.Take(4).ToArray()) + 4; 
         }
 
         public static bool DecodeHandshake(byte[] bytes, out byte[] hash, out string id)
@@ -367,7 +367,7 @@ namespace BitTorrent
         {
             isPieceDownloaded = new bool[pieces];
 
-            int expectedLength = Convert.ToInt32(Math.Ceiling(pieces / 8.0)) + 1;
+            int expectedLength = Convert.ToInt32(Math.Ceiling(pieces / 8.0)) + 1; 
 
             if (bytes.Length != expectedLength + 4 || ReadInt32BigEndian(bytes) != expectedLength)
             {
@@ -400,7 +400,7 @@ namespace BitTorrent
             int numBytes = Convert.ToInt32(Math.Ceiling(numPieces / 8.0));
             int numBits = numBytes * 8;
 
-            int length = numBytes + 1;
+            int length = numBytes + 1; // +1 for the message ID byte
 
             byte[] message = new byte[length + 4];
             Buffer.BlockCopy(WriteInt32BigEndian(length), 0, message, 0, 4);
@@ -742,7 +742,7 @@ namespace BitTorrent
             Id = id;
 
             IsHandshakeReceived = true;
-            SendBitfield(Torrent.IsPieceVerified);
+            SendBitfield(Torrent.IsPieceVerified); // immediately advertise which pieces we have available, so the peer can make informed decisions about which pieces to request
         }
 
         private void HandleKeepAlive()
@@ -782,17 +782,17 @@ namespace BitTorrent
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        private void HandleHave(int index)
+        private void HandleHave(int index) 
         {
             IsPieceDownloaded[index] = true;
             Log.Debug(this, "<- have " + index + " - " + PiecesDownloadedCount + " available (" + PiecesDownloaded + ")");
-            StateChanged?.Invoke(this, EventArgs.Empty);
+            StateChanged?.Invoke(this, EventArgs.Empty); 
         }
 
         private void HandleBitfield(bool[] isPieceDownloaded)
-        {
+        {   
             for (int i = 0; i < Torrent.PieceCount; i++)
-                IsPieceDownloaded[i] = IsPieceDownloaded[i] || isPieceDownloaded[i];
+                IsPieceDownloaded[i] = IsPieceDownloaded[i] || isPieceDownloaded[i]; 
 
             Log.Debug(this, "<- bitfield " + PiecesDownloadedCount + " available (" + PiecesDownloaded + ")");
             StateChanged?.Invoke(this, EventArgs.Empty);

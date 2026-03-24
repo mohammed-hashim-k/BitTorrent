@@ -28,14 +28,14 @@ namespace BitTorrent
         public bool? IsPrivate { get; private set; }
         public List<FileItem> Files { get; private set; } = new List<FileItem>();
         public string FileDirectory { get { return (Files.Count > 1 ? Name + Path.DirectorySeparatorChar : ""); } }
-        public string DownloadDirectory { get; private set; } = string.Empty;
+        public string DownloadDirectory { get; private set; } = string.Empty; // the directory where the torrent files will be downloaded, not including the file name for single-file torrents or the root directory for multi-file torrents
         public List<Tracker> Trackers { get; } = new List<Tracker>();
         public string Comment { get; set; } = string.Empty;
         public string CreatedBy { get; set; } = string.Empty;
         public DateTime CreationDate { get; set; }
-        public Encoding Encoding { get; set; } = System.Text.Encoding.UTF8;
-        public int BlockSize { get; private set; }
-        public int PieceSize { get; private set; }
+        public Encoding Encoding { get; set; } = System.Text.Encoding.UTF8; // the character encoding used for string fields in the torrent metadata, typically UTF-8
+        public int BlockSize { get; private set; } // the length of each block in bytes, which is the unit of data transfer between peers, typically 16KB (16384 bytes)
+        public int PieceSize { get; private set; } // the length of each piece in bytes, except for the last piece which may be shorter if the total size is not a multiple of the piece size
         public long TotalSize { get { return Files.Sum(x => x.Size); } }
 
         public string FormattedPieceSize { get { return BytesToString(PieceSize); } }
@@ -44,9 +44,9 @@ namespace BitTorrent
         public int PieceCount { get { return PieceHashes.Length; } }
 
 
-        public byte[][] PieceHashes { get; private set; } = Array.Empty<byte[]>();
-        public bool[] IsPieceVerified { get; private set; } = Array.Empty<bool>();
-        public bool[][] IsBlockAcquired { get; private set; } = Array.Empty<bool[]>();
+        public byte[][] PieceHashes { get; private set; } = Array.Empty<byte[]>(); // the SHA-1 hash of each piece as specified in the torrent metadata, used to verify the integrity of downloaded pieces
+        public bool[] IsPieceVerified { get; private set; } = Array.Empty<bool>(); // whether each piece has been verified by comparing its hash to the torrent metadata
+        public bool[][] IsBlockAcquired { get; private set; } = Array.Empty<bool[]>(); // whether each block of each piece has been acquired, used to track download progress and determine which blocks to request from peers
 
         public string VerifiedPiecesString { get { return String.Join("", IsPieceVerified.Select(x => x ? 1 : 0)); } }
         public int VerifiedPiecesCount { get { return IsPieceVerified.Count(x => x); } }

@@ -275,7 +275,7 @@ namespace BitTorrent
 
         private void ProcessUploads()
         {
-            if (Interlocked.Exchange(ref isProcessUploads, 1) == 1)
+            if (Interlocked.Exchange(ref isProcessUploads, 1) == 1) 
                 return;
 
             while (!uploadThrottle.IsThrottled && OutgoingBlocks.TryDequeue(out var block))
@@ -302,7 +302,7 @@ namespace BitTorrent
         {
             IncomingBlocks.Enqueue(args);
 
-            args.Peer.IsBlockRequested[args.Piece][args.Block] = false;
+            args.Peer.IsBlockRequested[args.Piece][args.Block] = false; 
 
             foreach (var peer in Peers.Values)
             {
@@ -348,7 +348,7 @@ namespace BitTorrent
                         if (Torrent.IsBlockAcquired[piece][block])
                             continue;
 
-                        if (peer.BlocksRequested > 0)
+                        if (peer.BlocksRequested > 0) // only request one block at a time from each peer to keep pieces flowing in from multiple peers instead of saturating on a single peer
                             continue;
 
                         // Only one peer should own a given block request at a time.
