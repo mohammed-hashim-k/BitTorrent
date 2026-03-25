@@ -12,6 +12,9 @@ using System.Threading.Tasks;
 
 namespace BitTorrent
 {
+    /// <summary>
+    /// Describes a single file inside the torrent's logical byte stream.
+    /// </summary>
     public class FileItem
     {
         public string Path = string.Empty;
@@ -19,6 +22,10 @@ namespace BitTorrent
         public long Offset; // the offset of the file in the torrent
         public string FormattedSize { get { return Torrent.BytesToString(Size); } }
     }
+
+    /// <summary>
+    /// Represents torrent metadata, file layout, piece state, and disk access for the local payload.
+    /// </summary>
     public class Torrent
     {
 
@@ -69,6 +76,18 @@ namespace BitTorrent
         public event EventHandler<List<IPEndPoint>>? PeerListUpdated;
         private readonly object[] fileWriteLocks;
         private static readonly SHA1 sha1 = SHA1.Create();
+
+        /// <summary>
+        /// Creates a torrent model from known metadata and optionally precomputed piece hashes.
+        /// </summary>
+        /// <param name="name">The torrent display name.</param>
+        /// <param name="location">The root download directory that contains or will contain the payload.</param>
+        /// <param name="files">The files that make up the torrent payload.</param>
+        /// <param name="trackers">The announce URLs to contact for peers.</param>
+        /// <param name="pieceSize">The size of each piece in bytes.</param>
+        /// <param name="pieceHashes">Optional concatenated SHA-1 piece hashes from existing metadata.</param>
+        /// <param name="blockSize">The transfer block size used for peer requests.</param>
+        /// <param name="isPrivate">Whether the torrent is marked private.</param>
         public Torrent(string name, string location, List<FileItem> files, List<string>? trackers, int pieceSize, byte[]? pieceHashes = null, int blockSize = 16384, bool? isPrivate = false)
         {
             Name = name;
@@ -128,6 +147,11 @@ namespace BitTorrent
         #endregion
 
         #region Methods
+        /// <summary>
+        /// Resolves a torrent-relative file entry to its absolute location under the download directory.
+        /// </summary>
+        /// <param name="file">The file entry to resolve.</param>
+        /// <returns>The absolute path on disk.</returns>
         private string GetFilePath(FileItem file)
         {
             return Path.Combine(
@@ -136,6 +160,12 @@ namespace BitTorrent
                     .ToArray());
         }
 
+        /// <summary>
+        /// Reads a logical byte range from the torrent payload, transparently spanning multiple files if needed.
+        /// </summary>
+        /// <param name="start">The starting byte offset within the torrent's unified byte stream.</param>
+        /// <param name="length">The number of bytes to read.</param>
+        /// <returns>The requested bytes, or <see langword="null"/> if any required file is missing.</returns>
         public byte[]? Read(long start, int length)
         {
             long end = start + length;
@@ -178,6 +208,11 @@ namespace BitTorrent
             return buffer;
         }
 
+        /// <summary>
+        /// Writes a logical byte range into the torrent payload, creating directories as necessary.
+        /// </summary>
+        /// <param name="start">The starting byte offset within the torrent's unified byte stream.</param>
+        /// <param name="bytes">The bytes to write.</param>
         public void Write(long start, byte[] bytes)
         {
             long end = start + bytes.Length;
@@ -212,16 +247,34 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Reads an entire piece from disk.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index.</param>
+        /// <returns>The piece bytes, or <see langword="null"/> if the piece cannot be read completely.</returns>
         public byte[]? ReadPiece(int piece)
         {
             return Read(piece * PieceSize, GetPieceSize(piece));
         }
 
+        /// <summary>
+        /// Reads a specific block within a piece.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index.</param>
+        /// <param name="offset">The byte offset within the piece.</param>
+        /// <param name="length">The number of bytes to read.</param>
+        /// <returns>The block data, or <see langword="null"/> if it cannot be read.</returns>
         public byte[]? ReadBlock(int piece, int offset, int length)
         {
             return Read(piece * PieceSize + offset, length);
         }
 
+        /// <summary>
+        /// Writes a received block to disk, marks it acquired, and re-verifies the containing piece.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index.</param>
+        /// <param name="block">The zero-based block index within the piece.</param>
+        /// <param name="bytes">The block payload.</param>
         public void WriteBlock(int piece, int block, byte[] bytes)
         {
             Write(piece * PieceSize + block * BlockSize, bytes);
@@ -231,6 +284,10 @@ namespace BitTorrent
 
         public event EventHandler<int>? PieceVerified;
 
+        /// <summary>
+        /// Recomputes a piece hash and updates verification state based on the result.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index to verify.</param>
         public void Verify(int piece)
         {
             byte[]? hash = GetHash(piece);
@@ -261,6 +318,11 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Computes the SHA-1 hash for a piece using the current bytes on disk.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index to hash.</param>
+        /// <returns>The SHA-1 hash, or <see langword="null"/> if the piece data cannot be read.</returns>
         public byte[]? GetHash(int piece)
         {
             byte[]? data = ReadPiece(piece);
@@ -271,6 +333,12 @@ namespace BitTorrent
             return sha1.ComputeHash(data);
         }
 
+        /// <summary>
+        /// Loads torrent metadata from a <c>.torrent</c> file and binds it to a download directory.
+        /// </summary>
+        /// <param name="filePath">The torrent metadata file to load.</param>
+        /// <param name="downloadPath">The local download directory for the payload.</param>
+        /// <returns>The parsed torrent model.</returns>
         public static Torrent LoadFromFile(string filePath, string downloadPath)
         {
             object obj = BEncoding.DecodeFile(filePath);
@@ -279,6 +347,10 @@ namespace BitTorrent
             return BEncodingObjectToTorrent(obj, name, downloadPath);
         }
 
+        /// <summary>
+        /// Saves the torrent metadata to a sibling <c>.torrent</c> file named after the torrent.
+        /// </summary>
+        /// <param name="torrent">The torrent to serialize.</param>
         public static void SaveToFile(Torrent torrent)
         {
             object obj = TorrentToBEncodingObject(torrent);
@@ -286,8 +358,11 @@ namespace BitTorrent
             BEncoding.EncodeToFile(obj, torrent.Name + ".torrent");
         }
 
-
-
+        /// <summary>
+        /// Builds the top-level bencoded metadata dictionary for a torrent.
+        /// </summary>
+        /// <param name="torrent">The torrent to serialize.</param>
+        /// <returns>The bencoding object model for the full torrent metadata.</returns>
         private static object TorrentToBEncodingObject(Torrent torrent)
         {
             Dictionary<string, object> dict = new Dictionary<string, object>();
@@ -305,6 +380,11 @@ namespace BitTorrent
             return dict;
         }
 
+        /// <summary>
+        /// Builds the bencoded <c>info</c> dictionary used for hashing and serialization.
+        /// </summary>
+        /// <param name="torrent">The torrent to serialize.</param>
+        /// <returns>The bencoding object model for the <c>info</c> section.</returns>
         private static object TorrentInfoToBEncodingObject(Torrent torrent)
         {
             Dictionary<string, object> dict = new Dictionary<string, object>();
@@ -342,6 +422,11 @@ namespace BitTorrent
             return dict;
         }
 
+        /// <summary>
+        /// Decodes a bencoded byte string into a UTF-8 managed string.
+        /// </summary>
+        /// <param name="obj">The bencoded value expected to be a byte array.</param>
+        /// <returns>The decoded string.</returns>
         public static string DecodeUTF8String(object obj)
         {
             if (obj is not byte[] bytes)
@@ -350,6 +435,11 @@ namespace BitTorrent
             return Encoding.UTF8.GetString(bytes);
         }
 
+        /// <summary>
+        /// Converts a Unix timestamp expressed in seconds to local time.
+        /// </summary>
+        /// <param name="unixTimeStamp">The Unix timestamp in seconds.</param>
+        /// <returns>The corresponding local <see cref="DateTime"/>.</returns>
         public static DateTime UnixTimeStampToDateTime(double unixTimeStamp)
         {
             // Unix timestamp is seconds past epoch
@@ -358,6 +448,13 @@ namespace BitTorrent
             return dtDateTime;
         }
 
+        /// <summary>
+        /// Reconstructs a <see cref="Torrent"/> instance from decoded bencoded metadata.
+        /// </summary>
+        /// <param name="bencoding">The decoded torrent metadata object graph.</param>
+        /// <param name="name">The fallback torrent name.</param>
+        /// <param name="downloadPath">The local download directory for the payload.</param>
+        /// <returns>The parsed torrent instance.</returns>
         private static Torrent BEncodingObjectToTorrent(object bencoding, string name, string downloadPath)
         {
             Dictionary<string, object> obj = (Dictionary<string, object>)bencoding;
@@ -447,6 +544,14 @@ namespace BitTorrent
             return torrent;
         }
 
+        /// <summary>
+        /// Creates torrent metadata from an existing file or directory on disk.
+        /// </summary>
+        /// <param name="path">The source file or directory to turn into a torrent.</param>
+        /// <param name="trackers">Optional announce URLs to include in the metadata.</param>
+        /// <param name="pieceSize">The desired piece size in bytes.</param>
+        /// <param name="comment">An optional user-facing comment.</param>
+        /// <returns>A torrent model populated from the source content.</returns>
         public static Torrent Create(string path, List<string>? trackers = null, int pieceSize = 32768, string comment = "")
         {
             string name = "";
@@ -503,6 +608,14 @@ namespace BitTorrent
 
             return torrent;
         }
+
+        /// <summary>
+        /// Announces the torrent state to each configured tracker in sequence.
+        /// </summary>
+        /// <param name="ev">The announce event to send.</param>
+        /// <param name="id">The local peer identifier.</param>
+        /// <param name="port">The listening port to advertise.</param>
+        /// <returns>A task that completes once all trackers have been processed.</returns>
         public async Task UpdateTrackersAsync(TrackerEvent ev, string id, int port)
         {
             // Trackers are updated sequentially so each announce sees the latest counters.
@@ -510,9 +623,17 @@ namespace BitTorrent
                 await tracker.UpdateAsync(this, ev, id, port).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Resets tracker timing state so the next announce can run immediately.
+        /// </summary>
         public void ResetTrackersLastUpdated()
         { }
 
+        /// <summary>
+        /// Relays tracker-discovered peers to torrent consumers.
+        /// </summary>
+        /// <param name="sender">The tracker that raised the event.</param>
+        /// <param name="peers">The peer endpoints returned by the tracker.</param>
         private void HandlePeerListUpdated(object? sender, List<IPEndPoint> peers)
         {
             PeerListUpdated?.Invoke(this, peers);
@@ -521,11 +642,21 @@ namespace BitTorrent
         #endregion
 
         #region Utility Methods
+        /// <summary>
+        /// Converts a <see cref="DateTime"/> to a Unix timestamp in seconds.
+        /// </summary>
+        /// <param name="time">The date and time to convert.</param>
+        /// <returns>The Unix timestamp in seconds.</returns>
         public static long DateTimeToUnixTimestamp(DateTime time)
         {
             return Convert.ToInt64((DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1))).TotalSeconds);
         }
 
+        /// <summary>
+        /// Returns the size in bytes for the requested piece, accounting for a shorter last piece.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index.</param>
+        /// <returns>The piece size in bytes.</returns>
         public int GetPieceSize(int piece)
         {
             if (piece == PieceCount - 1)
@@ -540,6 +671,12 @@ namespace BitTorrent
             return PieceSize;
         }
 
+        /// <summary>
+        /// Returns the size in bytes for the requested block, accounting for a shorter last block in a piece.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index.</param>
+        /// <param name="block">The zero-based block index within the piece.</param>
+        /// <returns>The block size in bytes.</returns>
         public int GetBlockSize(int piece, int block)
         {
             if (block == GetBlockCount(piece) - 1)
@@ -554,11 +691,21 @@ namespace BitTorrent
             return BlockSize;
         }
 
+        /// <summary>
+        /// Returns how many blocks exist in the specified piece.
+        /// </summary>
+        /// <param name="piece">The zero-based piece index.</param>
+        /// <returns>The number of blocks in the piece.</returns>
         public int GetBlockCount(int piece)
         {
             return Convert.ToInt32(Math.Ceiling(GetPieceSize(piece) / (double)BlockSize));
         }
 
+        /// <summary>
+        /// Formats a byte count using human-readable binary units.
+        /// </summary>
+        /// <param name="bytes">The number of bytes to format.</param>
+        /// <returns>A display-friendly size string.</returns>
         public static string BytesToString(long bytes)
         {
             string[] suffixes = { "B", "KB", "MB", "GB", "TB", "PB" };

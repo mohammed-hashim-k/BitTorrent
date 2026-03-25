@@ -6,6 +6,9 @@ using System.IO;
 
 namespace BitTorrent
 {
+    /// <summary>
+    /// Encodes and decodes values using the bencoding format used by torrent metadata and tracker responses.
+    /// </summary>
     public static class BEncoding
     {
 
@@ -19,6 +22,11 @@ namespace BitTorrent
         private static byte ByteArrayDivider = System.Text.Encoding.UTF8.GetBytes(":")[0]; // 58
 
         #region Decoding
+        /// <summary>
+        /// Decodes a complete bencoded payload into dictionaries, lists, integers, strings, or byte arrays.
+        /// </summary>
+        /// <param name="bytes">The raw bencoded bytes to decode.</param>
+        /// <returns>The decoded object graph.</returns>
         public static object Decode(byte[] bytes)
         {
             IEnumerator<byte> enumerator = ((IEnumerable<byte>)bytes).GetEnumerator();
@@ -26,6 +34,11 @@ namespace BitTorrent
             return DecodeNextObject(enumerator);
         }
 
+        /// <summary>
+        /// Reads a file from disk and decodes its contents as bencoded data.
+        /// </summary>
+        /// <param name="path">The path to the bencoded file.</param>
+        /// <returns>The decoded object graph.</returns>
         public static object DecodeFile(string path)
         {
             if (!File.Exists(path))
@@ -36,6 +49,11 @@ namespace BitTorrent
             return Decode(bytes);
         }
 
+        /// <summary>
+        /// Decodes the next value at the enumerator's current position.
+        /// </summary>
+        /// <param name="enumerator">The byte enumerator positioned at the start of the next value.</param>
+        /// <returns>The decoded value.</returns>
         public static object DecodeNextObject(IEnumerator<byte> enumerator)
         {
             if (enumerator.Current == DictionaryStart)
@@ -54,7 +72,11 @@ namespace BitTorrent
             return DecodeByteArray(enumerator);
         }
 
-        // Decodes the number and return as long 
+        /// <summary>
+        /// Decodes a bencoded integer.
+        /// </summary>
+        /// <param name="enumerator">The byte enumerator positioned on the integer prefix.</param>
+        /// <returns>The decoded integer value.</returns>
         public static long DecodeNumber(IEnumerator<byte> enumerator)
         {
             List<byte> bytes = new List<byte>();
@@ -71,7 +93,11 @@ namespace BitTorrent
             return Int64.Parse(numAsString);
         }
 
-        // Decode byte array
+        /// <summary>
+        /// Decodes a length-prefixed bencoded byte array.
+        /// </summary>
+        /// <param name="enumerator">The byte enumerator positioned on the byte array length.</param>
+        /// <returns>The decoded byte array.</returns>
         public static byte[] DecodeByteArray(IEnumerator<byte> enumerator)
         {
             List<byte> lengthBytes = new List<byte>();
@@ -106,6 +132,11 @@ namespace BitTorrent
             return bytes;
         }
 
+        /// <summary>
+        /// Decodes a bencoded list until its terminating marker is reached.
+        /// </summary>
+        /// <param name="enumerator">The byte enumerator positioned on the list prefix.</param>
+        /// <returns>The decoded list values.</returns>
         private static List<object> DecodeList(IEnumerator<byte> enumerator)
         {
             List<object> list = new List<object>();
@@ -121,7 +152,11 @@ namespace BitTorrent
             return list;
         }
 
-        // Decode dictionary
+        /// <summary>
+        /// Decodes a bencoded dictionary and validates that its keys are byte-sorted.
+        /// </summary>
+        /// <param name="enumerator">The byte enumerator positioned on the dictionary prefix.</param>
+        /// <returns>The decoded dictionary.</returns>
         private static Dictionary<string, object> DecodeDictionary(IEnumerator<byte> enumerator)
         {
             Dictionary<string, object> dict = new Dictionary<string, object>();
@@ -161,6 +196,11 @@ namespace BitTorrent
 
         #region Encoding
 
+        /// <summary>
+        /// Encodes a supported .NET value into its bencoded byte representation.
+        /// </summary>
+        /// <param name="obj">The value to encode.</param>
+        /// <returns>The encoded bytes.</returns>
         public static byte[] Encode(object obj)
         {
             MemoryStream buffer = new MemoryStream();
@@ -168,11 +208,21 @@ namespace BitTorrent
             return buffer.ToArray();
         }
 
+        /// <summary>
+        /// Encodes a value and writes the result directly to a file.
+        /// </summary>
+        /// <param name="obj">The value to encode.</param>
+        /// <param name="path">The destination file path.</param>
         public static void EncodeToFile(object obj, string path)
         {
             File.WriteAllBytes(path, Encode(obj));
         }
 
+        /// <summary>
+        /// Appends a single bencoded value to an existing memory buffer.
+        /// </summary>
+        /// <param name="buffer">The output buffer to write into.</param>
+        /// <param name="obj">The value to encode.</param>
         public static void EncodeNextObject(MemoryStream buffer, object obj)
         {
             if (obj is byte[])
@@ -201,6 +251,11 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Encodes an integer using the bencoding integer format.
+        /// </summary>
+        /// <param name="buffer">The output buffer to write into.</param>
+        /// <param name="input">The integer value to encode.</param>
         public static void EncodeNumber(MemoryStream buffer, long input)
         {
             buffer.Append(NumberStart);
@@ -208,6 +263,11 @@ namespace BitTorrent
             buffer.Append(NumberEnd);
         }
 
+        /// <summary>
+        /// Encodes a byte array using the bencoding byte string format.
+        /// </summary>
+        /// <param name="buffer">The output buffer to write into.</param>
+        /// <param name="body">The byte array to encode.</param>
         public static void EncodeByteArray(MemoryStream buffer, byte[] body)
         {
             buffer.Append(Encoding.UTF8.GetBytes(Convert.ToString(body.Length)));
@@ -215,11 +275,21 @@ namespace BitTorrent
             buffer.Append(body);
         }
 
+        /// <summary>
+        /// Encodes a UTF-8 string as a bencoded byte string.
+        /// </summary>
+        /// <param name="buffer">The output buffer to write into.</param>
+        /// <param name="input">The string value to encode.</param>
         public static void EncodeString(MemoryStream buffer, string input)
         {
             EncodeByteArray(buffer, Encoding.UTF8.GetBytes(input));
         }
 
+        /// <summary>
+        /// Encodes a list by writing each element in sequence between list markers.
+        /// </summary>
+        /// <param name="buffer">The output buffer to write into.</param>
+        /// <param name="input">The list to encode.</param>
         public static void EncodeList(MemoryStream buffer, List<object> input)
         {
             buffer.Append(ListStart);
@@ -230,6 +300,11 @@ namespace BitTorrent
             buffer.Append(ListEnd);
         }
 
+        /// <summary>
+        /// Encodes a dictionary after sorting keys by their raw UTF-8 bytes as required by bencoding.
+        /// </summary>
+        /// <param name="buffer">The output buffer to write into.</param>
+        /// <param name="input">The dictionary to encode.</param>
         private static void EncodeDictionary(MemoryStream buffer, Dictionary<string, object> input)
         {
             buffer.Append(DictionaryStart);
@@ -249,12 +324,26 @@ namespace BitTorrent
 
     }
 
+    /// <summary>
+    /// Adds small helper methods for appending bytes to a <see cref="MemoryStream"/>.
+    /// </summary>
     public static class MemorySreamExtensions
     {
+        /// <summary>
+        /// Writes a single byte to the stream.
+        /// </summary>
+        /// <param name="stream">The destination stream.</param>
+        /// <param name="value">The byte to append.</param>
         public static void Append(this MemoryStream stream, byte value)
         {
             stream.WriteByte(value);
         }
+
+        /// <summary>
+        /// Writes a byte array to the stream.
+        /// </summary>
+        /// <param name="stream">The destination stream.</param>
+        /// <param name="values">The bytes to append.</param>
         public static void Append(this MemoryStream stream, byte[] values)
         {
             stream.Write(values, 0, values.Length);

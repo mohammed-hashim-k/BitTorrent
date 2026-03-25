@@ -8,6 +8,9 @@ using System.Threading;
 
 namespace BitTorrent
 {
+    /// <summary>
+    /// Coordinates trackers, peers, uploads, downloads, and overall torrent session state.
+    /// </summary>
     public class Client
     {
         private static readonly TimeSpan TrackerInterval = TimeSpan.FromSeconds(10);
@@ -29,6 +32,12 @@ namespace BitTorrent
         private int isProcessDownloads;
         private TcpListener? listener;
 
+        /// <summary>
+        /// Creates a torrent client bound to a listening port and torrent metadata file.
+        /// </summary>
+        /// <param name="port">The port to listen on for inbound peer connections.</param>
+        /// <param name="torrentPath">The path to the <c>.torrent</c> metadata file.</param>
+        /// <param name="downloadPath">The directory that contains or will contain the payload.</param>
         public Client(int port, string torrentPath, string downloadPath)
         {
             Id = GenerateClientId();
@@ -65,6 +74,9 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Starts listening for peers and launches the background tracker, peer, upload, and download loops.
+        /// </summary>
         public void Start()
         {
             isStopping = false;
@@ -76,6 +88,9 @@ namespace BitTorrent
             StartBackgroundLoop(ProcessDownloads, ProcessingInterval);
         }
 
+        /// <summary>
+        /// Stops listening, disconnects peers, and sends a stopped announce to trackers.
+        /// </summary>
         public void Stop()
         {
             if (isStopping)
@@ -86,11 +101,20 @@ namespace BitTorrent
             Torrent.UpdateTrackersAsync(TrackerEvent.Stopped, Id, Port).GetAwaiter().GetResult();
         }
 
+        /// <summary>
+        /// Generates the 20-character numeric peer id used in tracker announces and handshakes.
+        /// </summary>
+        /// <returns>The generated peer id.</returns>
         private string GenerateClientId()
         {
             return string.Concat(Enumerable.Range(0, 20).Select(_ => random.Next(0, 10)));
         }
 
+        /// <summary>
+        /// Runs the supplied action repeatedly on its own background thread until the client stops.
+        /// </summary>
+        /// <param name="action">The work to perform each iteration.</param>
+        /// <param name="interval">The delay between iterations.</param>
         private void StartBackgroundLoop(Action action, TimeSpan interval)
         {
             new Thread(() =>
@@ -108,6 +132,11 @@ namespace BitTorrent
             }.Start();
         }
 
+        /// <summary>
+        /// Adds tracker-discovered peers while filtering out the local client endpoint.
+        /// </summary>
+        /// <param name="sender">The torrent that raised the peer update.</param>
+        /// <param name="endPoints">The remote peers returned by a tracker.</param>
         private void HandlePeerListUpdated(object? sender, List<IPEndPoint> endPoints)
         {
             IPAddress local = LocalIPAddress;
@@ -121,6 +150,9 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Opens the listening socket and begins accepting inbound peer connections.
+        /// </summary>
         private void EnablePeerConnections()
         {
             listener = new TcpListener(new IPEndPoint(IPAddress.Any, Port));
@@ -128,6 +160,10 @@ namespace BitTorrent
             listener.BeginAcceptTcpClient(HandleNewConnection, null);
         }
 
+        /// <summary>
+        /// Accepts a newly connected inbound peer and starts waiting for the next one.
+        /// </summary>
+        /// <param name="ar">The async accept result.</param>
         private void HandleNewConnection(IAsyncResult ar)
         {
             if (listener == null)
@@ -147,6 +183,9 @@ namespace BitTorrent
             AddPeer(new Peer(Torrent, Id, client));
         }
 
+        /// <summary>
+        /// Stops listening for new peers and disconnects any active peer connections.
+        /// </summary>
         private void DisablePeerConnections()
         {
             if (listener == null)
@@ -159,6 +198,10 @@ namespace BitTorrent
                 peer.Disconnect();
         }
 
+        /// <summary>
+        /// Wires peer events, initiates the connection, and stores the peer if its endpoint is unique.
+        /// </summary>
+        /// <param name="peer">The peer to add to the session.</param>
         private void AddPeer(Peer peer)
         {
             peer.BlockRequested += HandleBlockRequested;
@@ -173,6 +216,11 @@ namespace BitTorrent
                 peer.Disconnect();
         }
 
+        /// <summary>
+        /// Removes a disconnected peer from all tracking collections and unsubscribes its events.
+        /// </summary>
+        /// <param name="sender">The peer that disconnected.</param>
+        /// <param name="args">Unused event data.</param>
         private void HandlePeerDisconnected(object? sender, EventArgs args)
         {
             if (sender is not Peer peer)
@@ -189,11 +237,21 @@ namespace BitTorrent
             Leechers.TryRemove(peer.Key, out _);
         }
 
+        /// <summary>
+        /// Re-evaluates peer state immediately after a protocol state transition.
+        /// </summary>
+        /// <param name="sender">The peer whose state changed.</param>
+        /// <param name="args">Unused event data.</param>
         private void HandlePeerStateChanged(object? sender, EventArgs args)
         {
             ProcessPeers();
         }
 
+        /// <summary>
+        /// Broadcasts a newly verified piece to connected peers and refreshes peer interest and choke decisions.
+        /// </summary>
+        /// <param name="sender">The torrent that verified the piece.</param>
+        /// <param name="index">The verified piece index.</param>
         private void HandlePieceVerified(object? sender, int index)
         {
             ProcessPeers();
@@ -207,6 +265,9 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Applies high-level peer policy such as timeouts, interest, keep-alives, and seeder/leecher selection.
+        /// </summary>
         private void ProcessPeers()
         {
             // State changes can trigger this method while the periodic loop is also
@@ -254,12 +315,22 @@ namespace BitTorrent
             Interlocked.Exchange(ref isProcessPeers, 0);
         }
 
+        /// <summary>
+        /// Queues an inbound block request so the upload loop can serve it.
+        /// </summary>
+        /// <param name="sender">The peer that requested the block.</param>
+        /// <param name="block">The requested block details.</param>
         private void HandleBlockRequested(object? sender, DataRequest block)
         {
             OutgoingBlocks.Enqueue(block);
             ProcessUploads();
         }
 
+        /// <summary>
+        /// Marks matching queued upload requests as cancelled so they are skipped when processed.
+        /// </summary>
+        /// <param name="sender">The peer that cancelled the request.</param>
+        /// <param name="block">The cancelled block details.</param>
         private void HandleBlockCancelled(object? sender, DataRequest block)
         {
             foreach (var item in OutgoingBlocks)
@@ -273,6 +344,9 @@ namespace BitTorrent
             ProcessUploads();
         }
 
+        /// <summary>
+        /// Serves queued upload requests while respecting throttling and local verification state.
+        /// </summary>
         private void ProcessUploads()
         {
             if (Interlocked.Exchange(ref isProcessUploads, 1) == 1) 
@@ -298,6 +372,11 @@ namespace BitTorrent
             Interlocked.Exchange(ref isProcessUploads, 0);
         }
 
+        /// <summary>
+        /// Queues a received block, clears request ownership, and cancels duplicate in-flight requests to other peers.
+        /// </summary>
+        /// <param name="sender">The peer that delivered the block.</param>
+        /// <param name="args">The received block data.</param>
         private void HandleBlockReceived(object? sender, DataPackage args)
         {
             IncomingBlocks.Enqueue(args);
@@ -316,6 +395,9 @@ namespace BitTorrent
             ProcessDownloads();
         }
 
+        /// <summary>
+        /// Flushes received blocks to disk and issues new download requests based on piece and peer ranking.
+        /// </summary>
         private void ProcessDownloads()
         {
             if (Interlocked.Exchange(ref isProcessDownloads, 1) == 1)
@@ -366,11 +448,19 @@ namespace BitTorrent
             Interlocked.Exchange(ref isProcessDownloads, 0);
         }
 
+        /// <summary>
+        /// Returns the current seeders in randomized order to spread block requests across peers.
+        /// </summary>
+        /// <returns>The ranked seeders for the next download pass.</returns>
         private Peer[] GetRankedSeeders()
         {
             return Seeders.Values.OrderBy(_ => random.Next(0, 100)).ToArray();
         }
 
+        /// <summary>
+        /// Returns piece indexes sorted by the client's desirability heuristic.
+        /// </summary>
+        /// <returns>The ranked piece indexes.</returns>
         private int[] GetRankedPieces()
         {
             var indexes = Enumerable.Range(0, Torrent.PieceCount).ToArray();
@@ -382,6 +472,11 @@ namespace BitTorrent
             return indexes;
         }
 
+        /// <summary>
+        /// Calculates the desirability score for a piece using progress, rarity, and a small random tie-breaker.
+        /// </summary>
+        /// <param name="piece">The piece index to score.</param>
+        /// <returns>The ranking score for the piece.</returns>
         private double GetPieceScore(int piece)
         {
             double progress = GetPieceProgress(piece);
@@ -396,11 +491,21 @@ namespace BitTorrent
             return progress + rarity + rand;
         }
 
+        /// <summary>
+        /// Returns how much of a piece has already been acquired locally.
+        /// </summary>
+        /// <param name="index">The piece index to inspect.</param>
+        /// <returns>A ratio between 0 and 1 representing completion progress.</returns>
         private double GetPieceProgress(int index)
         {
             return Torrent.IsBlockAcquired[index].Average(x => x ? 1.0 : 0.0);
         }
 
+        /// <summary>
+        /// Returns how scarce a piece is across the currently known peers.
+        /// </summary>
+        /// <param name="index">The piece index to inspect.</param>
+        /// <returns>A ratio where higher values mean fewer peers advertise the piece.</returns>
         private double GetPieceRarity(int index)
         {
             if (Peers.Count < 1)

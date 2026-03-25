@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 
 namespace BitTorrent
 {
+    /// <summary>
+    /// Describes the announce lifecycle event being sent to a tracker.
+    /// </summary>
     public enum TrackerEvent
     {
         Started,
@@ -13,6 +16,9 @@ namespace BitTorrent
         Stopped
     }
 
+    /// <summary>
+    /// Manages announces to a single tracker and publishes any peers returned in the response.
+    /// </summary>
     public class Tracker
     {
         private static readonly HttpClient HttpClient = new HttpClient
@@ -26,11 +32,23 @@ namespace BitTorrent
         public DateTime LastPeerRequest { get; private set; } = DateTime.MinValue;
         public TimeSpan PeerRequestInterval { get; private set; } = TimeSpan.FromMinutes(30);
 
+        /// <summary>
+        /// Initializes a tracker wrapper for the provided announce URL.
+        /// </summary>
+        /// <param name="address">The tracker announce URL.</param>
         public Tracker(string address)
         {
             Address = address;
         }
 
+        /// <summary>
+        /// Announces the torrent state to the tracker unless the current request interval says to wait.
+        /// </summary>
+        /// <param name="torrent">The torrent whose counters and info hash should be announced.</param>
+        /// <param name="ev">The announce event to send.</param>
+        /// <param name="id">The local peer identifier.</param>
+        /// <param name="port">The listening port for incoming peer connections.</param>
+        /// <returns>A task that completes once the announce attempt finishes.</returns>
         public async Task UpdateAsync(Torrent torrent, TrackerEvent ev, string id, int port)
         {
             // The client ticks regularly, but trackers tell us how often we are allowed
@@ -44,11 +62,22 @@ namespace BitTorrent
             await RequestAsync(url).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Clears the last announce timestamp so the next update can run immediately.
+        /// </summary>
         public void ResetLastRequest()
         {
             LastPeerRequest = DateTime.MinValue;
         }
 
+        /// <summary>
+        /// Builds the tracker announce URL using the torrent counters and peer identity.
+        /// </summary>
+        /// <param name="torrent">The torrent being announced.</param>
+        /// <param name="ev">The announce event to encode.</param>
+        /// <param name="id">The local peer identifier.</param>
+        /// <param name="port">The listening port to advertise.</param>
+        /// <returns>The completed tracker URL.</returns>
         private string BuildAnnounceUrl(Torrent torrent, TrackerEvent ev, string id, int port)
         {
             return string.Format(
@@ -63,6 +92,11 @@ namespace BitTorrent
                 ev.ToString().ToLowerInvariant());
         }
 
+        /// <summary>
+        /// Performs the HTTP GET request for a tracker announce and processes the response body.
+        /// </summary>
+        /// <param name="url">The full announce URL to request.</param>
+        /// <returns>A task that completes once the response has been handled.</returns>
         private async Task RequestAsync(string url)
         {
             try
@@ -83,6 +117,10 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Decodes a tracker response, updates the announce interval, and raises the discovered peer list.
+        /// </summary>
+        /// <param name="data">The raw bencoded tracker response.</param>
         private void HandleResponse(byte[] data)
         {
             var info = BEncoding.Decode(data) as Dictionary<string, object>;
@@ -118,6 +156,10 @@ namespace BitTorrent
             PeerListUpdated?.Invoke(this, peers);
         }
 
+        /// <summary>
+        /// Returns the tracker address for logging and display purposes.
+        /// </summary>
+        /// <returns>The tracker announce URL.</returns>
         public override string ToString()
         {
             return Address;

@@ -11,6 +11,9 @@ using System.IO;
 
 namespace BitTorrent
 {
+    /// <summary>
+    /// Represents a queued upload request from a remote peer.
+    /// </summary>
     public class DataRequest
     {
         public Peer Peer { get; init; } = null!;
@@ -20,6 +23,9 @@ namespace BitTorrent
         public bool IsCancelled { get; set; }
     }
 
+    /// <summary>
+    /// Represents a downloaded block received from a remote peer.
+    /// </summary>
     public class DataPackage
     {
         public Peer Peer { get; init; } = null!;
@@ -27,6 +33,10 @@ namespace BitTorrent
         public int Block { get; init; }
         public byte[] Data { get; init; } = Array.Empty<byte>();
     }
+
+    /// <summary>
+    /// Identifies the supported BitTorrent wire message types.
+    /// </summary>
     public enum MessageType : int
     {
         Unknown = -3,
@@ -43,6 +53,10 @@ namespace BitTorrent
         Cancel = 8,
         Port = 9,
     }
+
+    /// <summary>
+    /// Implements the BitTorrent wire protocol state machine for a single remote peer.
+    /// </summary>
     public class Peer
     {
         public event EventHandler? Disconnected;
@@ -93,6 +107,12 @@ namespace BitTorrent
 
         #region Constructors
 
+        /// <summary>
+        /// Creates a peer wrapper for an already-accepted inbound TCP connection.
+        /// </summary>
+        /// <param name="torrent">The torrent being shared with the peer.</param>
+        /// <param name="localId">The local peer identifier.</param>
+        /// <param name="client">The connected TCP client.</param>
         public Peer(Torrent torrent, string localId, TcpClient client) : this(torrent, localId)
         {
             TcpClient = client;
@@ -100,11 +120,22 @@ namespace BitTorrent
                 ?? throw new InvalidOperationException("Peer connection must have a remote endpoint.");
         }
 
+        /// <summary>
+        /// Creates a peer wrapper for an outbound connection to a known endpoint.
+        /// </summary>
+        /// <param name="torrent">The torrent being shared with the peer.</param>
+        /// <param name="localId">The local peer identifier.</param>
+        /// <param name="endPoint">The remote endpoint to connect to.</param>
         public Peer(Torrent torrent, string localId, IPEndPoint endPoint) : this(torrent, localId)
         {
             IPEndPoint = endPoint;
         }
 
+        /// <summary>
+        /// Initializes shared per-peer state used by both inbound and outbound connection flows.
+        /// </summary>
+        /// <param name="torrent">The torrent being shared with the peer.</param>
+        /// <param name="localId">The local peer identifier.</param>
         private Peer(Torrent torrent, string localId)
         {
             LocalId = localId;
@@ -119,11 +150,22 @@ namespace BitTorrent
         #endregion
 
         #region Methods
+        /// <summary>
+        /// Reads a 32-bit big-endian integer from a byte array.
+        /// </summary>
+        /// <param name="bytes">The source bytes.</param>
+        /// <param name="offset">The offset where the integer begins.</param>
+        /// <returns>The decoded integer value.</returns>
         private static int ReadInt32BigEndian(byte[] bytes, int offset = 0)
         {
             return BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(offset, sizeof(int)));
         }
 
+        /// <summary>
+        /// Encodes a 32-bit integer using big-endian byte order.
+        /// </summary>
+        /// <param name="value">The value to encode.</param>
+        /// <returns>The encoded bytes.</returns>
         private static byte[] WriteInt32BigEndian(int value)
         {
             byte[] bytes = new byte[sizeof(int)];
@@ -131,6 +173,9 @@ namespace BitTorrent
             return bytes;
         }
 
+        /// <summary>
+        /// Opens or adopts the socket connection, sends the initial handshake, and starts the async read loop.
+        /// </summary>
         public void Connect()
         {
             if (TcpClient == null)
@@ -153,6 +198,9 @@ namespace BitTorrent
             stream.BeginRead(streamBuffer, 0, Peer.bufferSize, new AsyncCallback(HandleRead), null);
         }
 
+        /// <summary>
+        /// Closes the peer connection and raises the disconnection event once.
+        /// </summary>
         public void Disconnect()
         {
             if (IsDisconnected)
@@ -166,6 +214,10 @@ namespace BitTorrent
             Disconnected?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Writes raw bytes to the peer stream, disconnecting on any transport failure.
+        /// </summary>
+        /// <param name="bytes">The protocol bytes to send.</param>
         private void SendBytes(byte[] bytes)
         {
             if (IsDisconnected || stream == null)
@@ -181,6 +233,10 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Handles an async socket read, buffers incoming data, and dispatches complete messages.
+        /// </summary>
+        /// <param name="ar">The async read result.</param>
         private void HandleRead(IAsyncResult ar)
         {
             if (stream == null)
@@ -226,6 +282,11 @@ namespace BitTorrent
             }
         }
 
+        /// <summary>
+        /// Determines how many bytes are needed before the next complete message can be processed.
+        /// </summary>
+        /// <param name="data">The currently buffered unread bytes.</param>
+        /// <returns>The expected message length in bytes.</returns>
         private int GetMessageLength(List<byte> data)
         {
             // The handshake is the only fixed-size message; everything after that is length-prefixed.
@@ -238,6 +299,13 @@ namespace BitTorrent
             return ReadInt32BigEndian(data.Take(4).ToArray()) + 4; 
         }
 
+        /// <summary>
+        /// Parses a handshake message and extracts the advertised info hash and peer id.
+        /// </summary>
+        /// <param name="bytes">The raw handshake bytes.</param>
+        /// <param name="hash">When this method returns, contains the info hash from the handshake.</param>
+        /// <param name="id">When this method returns, contains the remote peer id.</param>
+        /// <returns><see langword="true"/> if the handshake is valid; otherwise, <see langword="false"/>.</returns>
         public static bool DecodeHandshake(byte[] bytes, out byte[] hash, out string id)
         {
             hash = new byte[20];
@@ -265,6 +333,12 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Builds a BitTorrent handshake message for the given torrent and local peer id.
+        /// </summary>
+        /// <param name="hash">The torrent info hash.</param>
+        /// <param name="id">The local peer id.</param>
+        /// <returns>The encoded handshake message.</returns>
         public static byte[] EncodeHandshake(byte[] hash, string id)
         {
             byte[] message = new byte[68];
@@ -275,6 +349,12 @@ namespace BitTorrent
 
             return message;
         }
+
+        /// <summary>
+        /// Validates that a message is a correctly formed keep-alive frame.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <returns><see langword="true"/> if the message is valid; otherwise, <see langword="false"/>.</returns>
         public static bool DecodeKeepAlive(byte[] bytes)
         {
             if (bytes.Length != 4 || ReadInt32BigEndian(bytes) != 0)
@@ -285,30 +365,61 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Builds a keep-alive frame.
+        /// </summary>
+        /// <returns>The encoded keep-alive bytes.</returns>
         public static byte[] EncodeKeepAlive()
         {
             return WriteInt32BigEndian(0);
         }
+
+        /// <summary>
+        /// Validates a choke message.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeChoke(byte[] bytes)
         {
             return DecodeState(bytes, MessageType.Choke);
         }
 
+        /// <summary>
+        /// Validates an unchoke message.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeUnchoke(byte[] bytes)
         {
             return DecodeState(bytes, MessageType.Unchoke);
         }
 
+        /// <summary>
+        /// Validates an interested message.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeInterested(byte[] bytes)
         {
             return DecodeState(bytes, MessageType.Interested);
         }
 
+        /// <summary>
+        /// Validates a not-interested message.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeNotInterested(byte[] bytes)
         {
             return DecodeState(bytes, MessageType.NotInterested);
         }
 
+        /// <summary>
+        /// Validates one of the one-byte state-change messages that share a common frame shape.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <param name="type">The expected message type.</param>
+        /// <returns><see langword="true"/> if the frame matches the expected type.</returns>
         public static bool DecodeState(byte[] bytes, MessageType type)
         {
             if (bytes.Length != 5 || ReadInt32BigEndian(bytes) != 1 || bytes[4] != (byte)type)
@@ -319,26 +430,47 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Builds a choke message.
+        /// </summary>
+        /// <returns>The encoded choke frame.</returns>
         public static byte[] EncodeChoke()
         {
             return EncodeState(MessageType.Choke);
         }
 
+        /// <summary>
+        /// Builds an unchoke message.
+        /// </summary>
+        /// <returns>The encoded unchoke frame.</returns>
         public static byte[] EncodeUnchoke()
         {
             return EncodeState(MessageType.Unchoke);
         }
 
+        /// <summary>
+        /// Builds an interested message.
+        /// </summary>
+        /// <returns>The encoded interested frame.</returns>
         public static byte[] EncodeInterested()
         {
             return EncodeState(MessageType.Interested);
         }
 
+        /// <summary>
+        /// Builds a not-interested message.
+        /// </summary>
+        /// <returns>The encoded not-interested frame.</returns>
         public static byte[] EncodeNotInterested()
         {
             return EncodeState(MessageType.NotInterested);
         }
 
+        /// <summary>
+        /// Builds a one-byte state-change message.
+        /// </summary>
+        /// <param name="type">The message type to encode.</param>
+        /// <returns>The encoded frame.</returns>
         public static byte[] EncodeState(MessageType type)
         {
             byte[] message = new byte[5];
@@ -348,6 +480,12 @@ namespace BitTorrent
         }
 
 
+        /// <summary>
+        /// Parses a have message and extracts the piece index being advertised.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <param name="index">When this method returns, contains the advertised piece index.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeHave(byte[] bytes, out int index)
         {
             index = -1;
@@ -363,6 +501,13 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Parses a bitfield message into a per-piece availability map.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <param name="pieces">The total number of pieces in the torrent.</param>
+        /// <param name="isPieceDownloaded">When this method returns, contains the advertised piece availability.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeBitfield(byte[] bytes, int pieces, out bool[] isPieceDownloaded)
         {
             isPieceDownloaded = new bool[pieces];
@@ -384,6 +529,11 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Builds a have message for a verified piece.
+        /// </summary>
+        /// <param name="index">The piece index being advertised.</param>
+        /// <returns>The encoded have frame.</returns>
         public static byte[] EncodeHave(int index)
         {
             byte[] message = new byte[9];
@@ -394,6 +544,11 @@ namespace BitTorrent
             return message;
         }
 
+        /// <summary>
+        /// Builds a bitfield message describing which pieces are already available locally.
+        /// </summary>
+        /// <param name="isPieceDownloaded">The local per-piece availability map.</param>
+        /// <returns>The encoded bitfield frame.</returns>
         public static byte[] EncodeBitfield(bool[] isPieceDownloaded)
         {
             int numPieces = isPieceDownloaded.Length;
@@ -420,6 +575,14 @@ namespace BitTorrent
             return message;
         }
 
+        /// <summary>
+        /// Parses a block request message.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <param name="index">When this method returns, contains the requested piece index.</param>
+        /// <param name="begin">When this method returns, contains the block offset within the piece.</param>
+        /// <param name="length">When this method returns, contains the requested byte count.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeRequest(byte[] bytes, out int index, out int begin, out int length)
         {
             index = -1;
@@ -439,6 +602,14 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Parses a piece message containing block payload bytes.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <param name="index">When this method returns, contains the piece index.</param>
+        /// <param name="begin">When this method returns, contains the block offset within the piece.</param>
+        /// <param name="data">When this method returns, contains the block payload.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodePiece(byte[] bytes, out int index, out int begin, out byte[] data)
         {
             index = -1;
@@ -461,6 +632,14 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Parses a cancel message for a previously requested block.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
+        /// <param name="index">When this method returns, contains the piece index.</param>
+        /// <param name="begin">When this method returns, contains the block offset within the piece.</param>
+        /// <param name="length">When this method returns, contains the block length.</param>
+        /// <returns><see langword="true"/> if the message is valid.</returns>
         public static bool DecodeCancel(byte[] bytes, out int index, out int begin, out int length)
         {
             index = -1;
@@ -480,6 +659,13 @@ namespace BitTorrent
             return true;
         }
 
+        /// <summary>
+        /// Builds a block request message.
+        /// </summary>
+        /// <param name="index">The piece index to request from.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="length">The number of bytes requested.</param>
+        /// <returns>The encoded request frame.</returns>
         public static byte[] EncodeRequest(int index, int begin, int length)
         {
             byte[] message = new byte[17];
@@ -492,6 +678,13 @@ namespace BitTorrent
             return message;
         }
 
+        /// <summary>
+        /// Builds a piece message containing a block payload.
+        /// </summary>
+        /// <param name="index">The piece index being sent.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="data">The block payload.</param>
+        /// <returns>The encoded piece frame.</returns>
         public static byte[] EncodePiece(int index, int begin, byte[] data)
         {
             int length = data.Length + 9;
@@ -506,6 +699,13 @@ namespace BitTorrent
             return message;
         }
 
+        /// <summary>
+        /// Builds a cancel message for a previously requested block.
+        /// </summary>
+        /// <param name="index">The piece index.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="length">The number of bytes being cancelled.</param>
+        /// <returns>The encoded cancel frame.</returns>
         public static byte[] EncodeCancel(int index, int begin, int length)
         {
             byte[] message = new byte[17];
@@ -517,6 +717,10 @@ namespace BitTorrent
 
             return message;
         }
+
+        /// <summary>
+        /// Sends the initial BitTorrent handshake if it has not already been sent.
+        /// </summary>
         private void SendHandshake()
         {
             if (IsHandshakeSent)
@@ -527,6 +731,9 @@ namespace BitTorrent
             IsHandshakeSent = true;
         }
 
+        /// <summary>
+        /// Sends a keep-alive if enough time has passed since the last one.
+        /// </summary>
         public void SendKeepAlive()
         {
             if (LastKeepAlive > DateTime.UtcNow.AddSeconds(-30))
@@ -537,6 +744,9 @@ namespace BitTorrent
             LastKeepAlive = DateTime.UtcNow;
         }
 
+        /// <summary>
+        /// Sends a choke message if the peer is not already choked.
+        /// </summary>
         public void SendChoke()
         {
             if (IsChokeSent)
@@ -547,6 +757,9 @@ namespace BitTorrent
             IsChokeSent = true;
         }
 
+        /// <summary>
+        /// Sends an unchoke message if the peer is currently choked.
+        /// </summary>
         public void SendUnchoke()
         {
             if (!IsChokeSent)
@@ -557,6 +770,9 @@ namespace BitTorrent
             IsChokeSent = false;
         }
 
+        /// <summary>
+        /// Sends an interested message if one has not already been sent.
+        /// </summary>
         public void SendInterested()
         {
             if (IsInterestedSent)
@@ -567,6 +783,9 @@ namespace BitTorrent
             IsInterestedSent = true;
         }
 
+        /// <summary>
+        /// Sends a not-interested message if we previously advertised interest.
+        /// </summary>
         public void SendNotInterested()
         {
             if (!IsInterestedSent)
@@ -577,24 +796,44 @@ namespace BitTorrent
             IsInterestedSent = false;
         }
 
+        /// <summary>
+        /// Notifies the peer that a piece has been verified locally.
+        /// </summary>
+        /// <param name="index">The piece index that became available.</param>
         public void SendHave(int index)
         {
             Log.Debug(this, "-> have " + index);
             SendBytes(EncodeHave(index));
         }
 
+        /// <summary>
+        /// Sends the current local piece availability bitfield.
+        /// </summary>
+        /// <param name="isPieceDownloaded">The local per-piece availability map.</param>
         public void SendBitfield(bool[] isPieceDownloaded)
         {
             Log.Debug(this, "-> bitfield " + String.Join("", isPieceDownloaded.Select(x => x ? 1 : 0)));
             SendBytes(EncodeBitfield(isPieceDownloaded));
         }
 
+        /// <summary>
+        /// Requests a block from the remote peer.
+        /// </summary>
+        /// <param name="index">The piece index to request from.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="length">The number of bytes requested.</param>
         public void SendRequest(int index, int begin, int length)
         {
             Log.Debug(this, "-> request " + index + ", " + begin + ", " + length);
             SendBytes(EncodeRequest(index, begin, length));
         }
 
+        /// <summary>
+        /// Sends a block payload to the remote peer and updates upload counters.
+        /// </summary>
+        /// <param name="index">The piece index being sent.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="data">The block payload.</param>
         public void SendPiece(int index, int begin, byte[] data)
         {
             Log.Debug(this, "-> piece " + index + ", " + begin + ", " + data.Length);
@@ -602,11 +841,23 @@ namespace BitTorrent
             Uploaded += data.Length;
         }
 
+        /// <summary>
+        /// Cancels a previously requested block.
+        /// </summary>
+        /// <param name="index">The piece index.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="length">The number of bytes being cancelled.</param>
         public void SendCancel(int index, int begin, int length)
         {
             Log.Debug(this, "-> cancel");
             SendBytes(EncodeCancel(index, begin, length));
         }
+
+        /// <summary>
+        /// Determines the protocol message type represented by a fully buffered frame.
+        /// </summary>
+        /// <param name="bytes">The raw frame bytes.</param>
+        /// <returns>The detected message type.</returns>
         private MessageType GetMessageType(byte[] bytes)
         {
             if (!IsHandshakeReceived)
@@ -622,6 +873,10 @@ namespace BitTorrent
         }
 
 
+        /// <summary>
+        /// Dispatches a fully buffered message to the corresponding protocol handler.
+        /// </summary>
+        /// <param name="bytes">The raw message bytes.</param>
         private void HandleMessage(byte[] bytes)
         {
             LastActive = DateTime.UtcNow;
@@ -727,6 +982,12 @@ namespace BitTorrent
             Log.Debug(this, "Unhandled incoming message " + String.Join("", bytes.Select(x => x.ToString("x2"))));
             Disconnect();
         }
+
+        /// <summary>
+        /// Validates the incoming handshake, records the remote peer id, and advertises local piece availability.
+        /// </summary>
+        /// <param name="hash">The info hash advertised by the remote peer.</param>
+        /// <param name="id">The remote peer id.</param>
         private void HandleHandshake(byte[] hash, string id)
         {
             Log.Debug(this, "<- handshake");
@@ -745,15 +1006,26 @@ namespace BitTorrent
             SendBitfield(Torrent.IsPieceVerified); // immediately advertise which pieces we have available, so the peer can make informed decisions about which pieces to request
         }
 
+        /// <summary>
+        /// Records receipt of a keep-alive message.
+        /// </summary>
         private void HandleKeepAlive()
         {
             Log.Debug(this, "<- keep alive");
         }
 
+        /// <summary>
+        /// Handles an incoming DHT port message.
+        /// </summary>
+        /// <param name="port">The announced port.</param>
         private void HandlePort(int port)
         {
             Log.Debug(this, "<- port");
         }
+
+        /// <summary>
+        /// Updates state after the remote peer chokes us.
+        /// </summary>
         private void HandleChoke()
         {
             Log.Debug(this, "<- choke");
@@ -761,6 +1033,9 @@ namespace BitTorrent
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Updates state after the remote peer unchokes us.
+        /// </summary>
         private void HandleUnchoke()
         {
             Log.Debug(this, "<- unchoke");
@@ -768,6 +1043,9 @@ namespace BitTorrent
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Updates state after the remote peer signals interest in our data.
+        /// </summary>
         private void HandleInterested()
         {
             Log.Debug(this, "<- interested");
@@ -775,6 +1053,9 @@ namespace BitTorrent
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Updates state after the remote peer signals it is no longer interested.
+        /// </summary>
         private void HandleNotInterested()
         {
             Log.Debug(this, "<- not interested");
@@ -782,6 +1063,10 @@ namespace BitTorrent
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Marks a single piece as available on the remote peer.
+        /// </summary>
+        /// <param name="index">The advertised piece index.</param>
         private void HandleHave(int index) 
         {
             IsPieceDownloaded[index] = true;
@@ -789,6 +1074,10 @@ namespace BitTorrent
             StateChanged?.Invoke(this, EventArgs.Empty); 
         }
 
+        /// <summary>
+        /// Merges the remote peer's advertised bitfield into the local availability map.
+        /// </summary>
+        /// <param name="isPieceDownloaded">The availability map decoded from the bitfield message.</param>
         private void HandleBitfield(bool[] isPieceDownloaded)
         {   
             for (int i = 0; i < Torrent.PieceCount; i++)
@@ -798,6 +1087,12 @@ namespace BitTorrent
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Raises an upload request event for a block requested by the remote peer.
+        /// </summary>
+        /// <param name="index">The requested piece index.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="length">The requested block length.</param>
         private void HandleRequest(int index, int begin, int length)
         {
             Log.Debug(this, "<- request " + index + ", " + begin + ", " + length);
@@ -811,6 +1106,12 @@ namespace BitTorrent
             });
         }
 
+        /// <summary>
+        /// Raises a download event for a received block and updates the download counter.
+        /// </summary>
+        /// <param name="index">The piece index containing the block.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="data">The received block payload.</param>
         private void HandlePiece(int index, int begin, byte[] data)
         {
             Log.Debug(this, "<- piece " + index + ", " + begin + ", " + data.Length);
@@ -826,6 +1127,12 @@ namespace BitTorrent
             });
         }
 
+        /// <summary>
+        /// Raises a cancellation event for a block the remote peer no longer wants.
+        /// </summary>
+        /// <param name="index">The piece index.</param>
+        /// <param name="begin">The byte offset within the piece.</param>
+        /// <param name="length">The cancelled block length.</param>
         private void HandleCancel(int index, int begin, int length)
         {
             Log.Debug(this, "<- cancel");
