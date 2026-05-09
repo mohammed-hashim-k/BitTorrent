@@ -353,9 +353,19 @@ namespace BitTorrent
         /// <param name="torrent">The torrent to serialize.</param>
         public static void SaveToFile(Torrent torrent)
         {
+            SaveToFile(torrent, torrent.Name + ".torrent");
+        }
+
+        /// <summary>
+        /// Saves the torrent metadata to the specified <c>.torrent</c> file.
+        /// </summary>
+        /// <param name="torrent">The torrent to serialize.</param>
+        /// <param name="filePath">The destination metadata file path.</param>
+        public static void SaveToFile(Torrent torrent, string filePath)
+        {
             object obj = TorrentToBEncodingObject(torrent);
 
-            BEncoding.EncodeToFile(obj, torrent.Name + ".torrent");
+            BEncoding.EncodeToFile(obj, filePath);
         }
 
         /// <summary>

@@ -38,10 +38,11 @@ namespace BitTorrent
         /// <param name="port">The port to listen on for inbound peer connections.</param>
         /// <param name="torrentPath">The path to the <c>.torrent</c> metadata file.</param>
         /// <param name="downloadPath">The directory that contains or will contain the payload.</param>
-        public Client(int port, string torrentPath, string downloadPath)
+        public Client(int port, string torrentPath, string downloadPath, int? announcePort = null)
         {
             Id = GenerateClientId();
             Port = port;
+            AnnouncePort = announcePort ?? port;
 
             Torrent = Torrent.LoadFromFile(torrentPath, downloadPath);
             Torrent.PieceVerified += HandlePieceVerified;
@@ -49,6 +50,7 @@ namespace BitTorrent
         }
 
         public int Port { get; }
+        public int AnnouncePort { get; }
         public Torrent Torrent { get; }
         public string Id { get; }
 
@@ -82,7 +84,7 @@ namespace BitTorrent
             isStopping = false;
             EnablePeerConnections();
 
-            StartBackgroundLoop(() => Torrent.UpdateTrackersAsync(TrackerEvent.Started, Id, Port).GetAwaiter().GetResult(), TrackerInterval);
+            StartBackgroundLoop(() => Torrent.UpdateTrackersAsync(TrackerEvent.Started, Id, AnnouncePort).GetAwaiter().GetResult(), TrackerInterval);
             StartBackgroundLoop(ProcessPeers, ProcessingInterval);
             StartBackgroundLoop(ProcessUploads, ProcessingInterval);
             StartBackgroundLoop(ProcessDownloads, ProcessingInterval);
@@ -98,7 +100,7 @@ namespace BitTorrent
 
             isStopping = true;
             DisablePeerConnections();
-            Torrent.UpdateTrackersAsync(TrackerEvent.Stopped, Id, Port).GetAwaiter().GetResult();
+            Torrent.UpdateTrackersAsync(TrackerEvent.Stopped, Id, AnnouncePort).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -166,20 +168,35 @@ namespace BitTorrent
         /// <param name="ar">The async accept result.</param>
         private void HandleNewConnection(IAsyncResult ar)
         {
-            if (listener == null)
+            var activeListener = listener;
+            if (activeListener == null)
                 return;
 
             TcpClient client;
             try
             {
-                client = listener.EndAcceptTcpClient(ar);
+                client = activeListener.EndAcceptTcpClient(ar);
             }
             catch (ObjectDisposedException)
             {
                 return;
             }
 
-            listener.BeginAcceptTcpClient(HandleNewConnection, null);
+            try
+            {
+                activeListener.BeginAcceptTcpClient(HandleNewConnection, null);
+            }
+            catch (ObjectDisposedException)
+            {
+                client.Close();
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                client.Close();
+                return;
+            }
+
             AddPeer(new Peer(Torrent, Id, client));
         }
 
