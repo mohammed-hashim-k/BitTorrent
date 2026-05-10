@@ -70,3 +70,12 @@ jobs:
 
       - name: Run tests
         run: dotnet test BitTorrent.Tests\BitTorrent.Tests.csproj --configuration ${{ matrix.configuration }} --no-restore --no-build
+
+      - name: Publish application
+        run: dotnet publish BitTorrent.csproj --configuration ${{ matrix.configuration }} --output artifacts\BitTorrent-${{ matrix.configuration }} --no-restore
+
+      - name: Upload publish artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BitTorrent-${{ matrix.configuration }}
+          path: artifacts\BitTorrent-${{ matrix.configuration }}
