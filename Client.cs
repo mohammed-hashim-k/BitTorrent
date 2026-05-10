@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BitTorrent
 {
@@ -31,6 +32,7 @@ namespace BitTorrent
         private int isProcessUploads;
         private int isProcessDownloads;
         private TcpListener? listener;
+        private CancellationTokenSource? backgroundCancellation;
 
         /// <summary>
         /// Creates a torrent client bound to a listening port and torrent metadata file.
@@ -82,12 +84,13 @@ namespace BitTorrent
         public void Start()
         {
             isStopping = false;
+            backgroundCancellation = new CancellationTokenSource();
             EnablePeerConnections();
 
-            StartBackgroundLoop(() => Torrent.UpdateTrackersAsync(TrackerEvent.Started, Id, AnnouncePort).GetAwaiter().GetResult(), TrackerInterval);
-            StartBackgroundLoop(ProcessPeers, ProcessingInterval);
-            StartBackgroundLoop(ProcessUploads, ProcessingInterval);
-            StartBackgroundLoop(ProcessDownloads, ProcessingInterval);
+            StartBackgroundLoop(() => Torrent.UpdateTrackersAsync(TrackerEvent.Started, Id, AnnouncePort).GetAwaiter().GetResult(), TrackerInterval, backgroundCancellation.Token);
+            StartBackgroundLoop(ProcessPeers, ProcessingInterval, backgroundCancellation.Token);
+            StartBackgroundLoop(ProcessUploads, ProcessingInterval, backgroundCancellation.Token);
+            StartBackgroundLoop(ProcessDownloads, ProcessingInterval, backgroundCancellation.Token);
         }
 
         /// <summary>
@@ -99,6 +102,9 @@ namespace BitTorrent
                 return;
 
             isStopping = true;
+            backgroundCancellation?.Cancel();
+            backgroundCancellation?.Dispose();
+            backgroundCancellation = null;
             DisablePeerConnections();
             Torrent.UpdateTrackersAsync(TrackerEvent.Stopped, Id, AnnouncePort).GetAwaiter().GetResult();
         }
@@ -113,25 +119,31 @@ namespace BitTorrent
         }
 
         /// <summary>
-        /// Runs the supplied action repeatedly on its own background thread until the client stops.
+        /// Runs the supplied action repeatedly on its own background task until the client stops.
         /// </summary>
         /// <param name="action">The work to perform each iteration.</param>
         /// <param name="interval">The delay between iterations.</param>
-        private void StartBackgroundLoop(Action action, TimeSpan interval)
+        /// <param name="cancellationToken">The token used to stop the background loop.</param>
+        private void StartBackgroundLoop(Action action, TimeSpan interval, CancellationToken cancellationToken)
         {
-            new Thread(() =>
+            Task.Run(async () =>
             {
                 // Keep each background concern isolated so tracker, peer, upload,
                 // and download work can make progress independently.
-                while (!isStopping)
+                while (!isStopping && !cancellationToken.IsCancellationRequested)
                 {
                     action();
-                    Thread.Sleep(interval);
+
+                    try
+                    {
+                        await Task.Delay(interval, cancellationToken);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
                 }
-            })
-            {
-                IsBackground = true
-            }.Start();
+            }, cancellationToken);
         }
 
         /// <summary>
@@ -366,7 +378,7 @@ namespace BitTorrent
         /// </summary>
         private void ProcessUploads()
         {
-            if (Interlocked.Exchange(ref isProcessUploads, 1) == 1) 
+            if (Interlocked.Exchange(ref isProcessUploads, 1) == 1)
                 return;
 
             while (!uploadThrottle.IsThrottled && OutgoingBlocks.TryDequeue(out var block))
@@ -398,7 +410,7 @@ namespace BitTorrent
         {
             IncomingBlocks.Enqueue(args);
 
-            args.Peer.IsBlockRequested[args.Piece][args.Block] = false; 
+            args.Peer.IsBlockRequested[args.Piece][args.Block] = false;
 
             foreach (var peer in Peers.Values)
             {
